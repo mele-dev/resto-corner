@@ -129,6 +129,29 @@ class ApiClient {
     return this.request<OrderStatusHistoryItem[]>(`/admin/api/orders/${id}/history`);
   }
 
+  async getOrdersByTable(tableId: number) {
+    const orders = await this.getOrders({ showArchived: false });
+    // Filtrar pedidos de la mesa que no estén completados o cancelados
+    const tableOrders = orders.data.filter(
+      (order: Order) => 
+        order.tableId === tableId && 
+        order.status !== 'completed' && 
+        order.status !== 'cancelled'
+    );
+    return tableOrders;
+  }
+
+  async processTablePayment(orderId: number, paymentMethod: string) {
+    // Primero actualizar el método de pago del pedido
+    await this.request<Order>(`/admin/api/orders/${orderId}/payment-method`, {
+      method: 'PATCH',
+      body: { paymentMethod },
+    });
+    
+    // Luego completar el pedido
+    return this.updateOrderStatus(orderId, 'completed');
+  }
+
   // Products
   async getProducts() {
     return this.request<Product[]>('/admin/api/products');

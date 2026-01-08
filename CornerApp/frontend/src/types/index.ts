@@ -9,6 +9,7 @@ export interface Order {
   paymentMethod: string;
   deliveryPersonId?: number;
   deliveryPerson?: DeliveryPerson;
+  tableId?: number; // ID de la mesa asociada al pedido
   comments?: string;
   isArchived: boolean;
   createdAt: string;

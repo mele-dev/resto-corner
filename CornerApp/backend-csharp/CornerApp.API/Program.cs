@@ -797,6 +797,29 @@ if (app.Environment.IsDevelopment())
                     END
                 ");
                 
+                // Agregar columna OrderPlacedAt a Tables si no existe
+                dbContext.Database.ExecuteSqlRaw(@"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Tables]') AND name = 'OrderPlacedAt')
+                    BEGIN
+                        ALTER TABLE [dbo].[Tables] ADD [OrderPlacedAt] datetime2 NULL;
+                    END
+                ");
+                
+                // Agregar columnas PositionX y PositionY si no existen
+                dbContext.Database.ExecuteSqlRaw(@"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Tables]') AND name = 'PositionX')
+                    BEGIN
+                        ALTER TABLE [dbo].[Tables] ADD [PositionX] float NULL;
+                    END
+                ");
+                
+                dbContext.Database.ExecuteSqlRaw(@"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Tables]') AND name = 'PositionY')
+                    BEGIN
+                        ALTER TABLE [dbo].[Tables] ADD [PositionY] float NULL;
+                    END
+                ");
+                
                 Log.Information("✅ Migración de Spaces aplicada exitosamente");
             }
             catch (Exception ex)

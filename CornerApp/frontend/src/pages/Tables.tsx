@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart, CreditCard } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
-import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod } from '../types';
+import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod, Order } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
   { value: 'Available', label: 'Disponible', color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -64,6 +64,14 @@ export default function TablesPage() {
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>('cash');
   const [orderComments, setOrderComments] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
+  // Payment state
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [tableForPayment, setTableForPayment] = useState<Table | null>(null);
+  const [tableOrders, setTableOrders] = useState<Order[]>([]);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('cash');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [totalAmount, setTotalAmount] = useState(0);
 
   const { showToast } = useToast();
 
@@ -183,9 +191,12 @@ export default function TablesPage() {
       await api.createSpace(spaceFormData);
       showToast('Espacio creado exitosamente', 'success');
       setIsSpaceModalOpen(false);
+      setSpaceFormData({ name: '', description: '' });
       loadSpaces();
     } catch (error: any) {
-      showToast(error.message || 'Error al crear el espacio', 'error');
+      console.error('Error al crear espacio:', error);
+      const errorMessage = error?.message || error?.error || 'Error al crear el espacio';
+      showToast(errorMessage, 'error');
     } finally {
       setSpaceFormLoading(false);
     }
@@ -242,7 +253,9 @@ export default function TablesPage() {
       setIsFormModalOpen(false);
       loadData();
     } catch (error: any) {
-      showToast(error.message || 'Error al guardar la mesa', 'error');
+      console.error('Error al guardar mesa:', error);
+      const errorMessage = error?.message || error?.error || 'Error al guardar la mesa';
+      showToast(errorMessage, 'error');
     } finally {
       setFormLoading(false);
     }
@@ -359,6 +372,121 @@ export default function TablesPage() {
       showToast(error.message || 'Error al crear el pedido', 'error');
     } finally {
       setIsCreatingOrder(false);
+    }
+  };
+
+  const openPaymentModal = async (table: Table) => {
+    try {
+      setTableForPayment(table);
+      // Obtener pedidos activos de la mesa
+      const orders = await api.getOrdersByTable(table.id);
+      setTableOrders(orders);
+      
+      if (orders.length === 0) {
+        showToast('No hay pedidos activos para esta mesa', 'error');
+        return;
+      }
+      
+      // Calcular el total de todos los pedidos
+      const total = orders.reduce((sum, order) => sum + order.total, 0);
+      setTotalAmount(total);
+      setSelectedPaymentMethod('cash');
+      setIsPaymentModalOpen(true);
+    } catch (error: any) {
+      showToast(error.message || 'Error al cargar pedidos de la mesa', 'error');
+    }
+  };
+
+  const enviarTransaccionPOS = async (amount: number) => {
+    try {
+      const urlString = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
+      
+      // Formatear fecha como yyyyMMddHHmmssSSS
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
+      const transactionDateTime = `${year}${month}${day}${hours}${minutes}${seconds}${milliseconds}`;
+      
+      // Convertir el monto a centavos (multiplicar por 100 y quitar decimales)
+      const amountInCents = Math.round(amount * 100).toString();
+      
+      // JSON de envío transacción - datos hardcodeados según el ejemplo Java
+      const json = {
+        "PosID": "1",
+        "SystemId": "1",
+        "Branch": "1",
+        "ClientAppId": "1",
+        "UserId": "1",
+        "TransactionDateTimeyyyyMMddHHmmssSSS": transactionDateTime,
+        "Amount": amountInCents,
+        "Quotas": "5",
+        "Plan": "0",
+        "Currency": "858",
+        "TaxRefund": "1",
+        "TaxableAmount": "1194400",
+        "InvoiceAmount": "1420000"
+      };
+
+      const response = await fetch(urlString, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: JSON.stringify(json),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error en respuesta del POS: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      console.error('Error al enviar transacción al POS:', error);
+      throw new Error(`Error al comunicarse con el POS: ${error.message}`);
+    }
+  };
+
+  const handleProcessPayment = async () => {
+    if (!tableForPayment || tableOrders.length === 0) {
+      return;
+    }
+
+    try {
+      setIsProcessingPayment(true);
+      
+      // Si el método de pago es POS, enviar transacción al POS primero
+      if (selectedPaymentMethod.toLowerCase() === 'pos') {
+        try {
+          await enviarTransaccionPOS(totalAmount);
+          showToast('Transacción POS enviada exitosamente', 'success');
+        } catch (error: any) {
+          showToast(`Error al enviar transacción POS: ${error.message}`, 'error');
+          return; // No continuar con el procesamiento del pago si falla el POS
+        }
+      }
+      
+      // Procesar el pago de todos los pedidos de la mesa
+      for (const order of tableOrders) {
+        await api.processTablePayment(order.id, selectedPaymentMethod);
+      }
+      
+      // Actualizar el estado de la mesa a Available
+      await api.updateTableStatus(tableForPayment.id, 'Available');
+      
+      showToast(`Pago procesado exitosamente. Total: $${totalAmount.toFixed(2)}`, 'success');
+      setIsPaymentModalOpen(false);
+      setTableForPayment(null);
+      setTableOrders([]);
+      loadData(); // Recargar mesas para actualizar estado
+    } catch (error: any) {
+      showToast(error.message || 'Error al procesar el pago', 'error');
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -827,6 +955,19 @@ export default function TablesPage() {
                               Pedido
                             </button>
                           )}
+                          {(table.status === 'OrderPlaced' || table.status === 'Occupied') && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPaymentModal(table);
+                              }}
+                              className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg shadow-lg flex items-center gap-1 transition-colors z-50"
+                              title="Cobrar"
+                            >
+                              <CreditCard size={12} />
+                              Cobrar
+                            </button>
+                          )}
                         </div>
                         
                         {/* Sombra debajo de la mesa */}
@@ -929,7 +1070,7 @@ export default function TablesPage() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    {table.status !== 'OrderPlaced' && (
+                    {table.status !== 'OrderPlaced' && table.status !== 'Occupied' && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -939,6 +1080,18 @@ export default function TablesPage() {
                       >
                         <ShoppingCart size={16} />
                         Crear Pedido
+                      </button>
+                    )}
+                    {(table.status === 'OrderPlaced' || table.status === 'Occupied') && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPaymentModal(table);
+                        }}
+                        className="w-full px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                      >
+                        <CreditCard size={16} />
+                        Cobrar
                       </button>
                     )}
                     <select
@@ -1403,6 +1556,107 @@ export default function TablesPage() {
                 <>
                   <ShoppingCart size={18} />
                   Crear Pedido
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Payment Modal */}
+      <Modal
+        isOpen={isPaymentModalOpen}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setTableForPayment(null);
+          setTableOrders([]);
+        }}
+        title={`Cobrar - Mesa ${tableForPayment?.number}`}
+        size="md"
+      >
+        <div className="space-y-4">
+          {/* Resumen de Pedidos */}
+          {tableOrders.length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Pedidos de la Mesa
+              </label>
+              <div className="border border-gray-200 rounded-lg divide-y max-h-48 overflow-y-auto">
+                {tableOrders.map((order) => (
+                  <div key={order.id} className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-sm">Pedido #{order.id}</div>
+                        <div className="text-xs text-gray-500">
+                          {order.items?.length || 0} items
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-green-600">
+                          ${order.total.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Total */}
+          <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-semibold text-gray-700">Total a Cobrar:</span>
+              <span className="text-2xl font-bold text-green-600">
+                ${totalAmount.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Método de Pago */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Método de Pago *
+            </label>
+            <select
+              value={selectedPaymentMethod}
+              onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              {paymentMethods.map((method) => (
+                <option key={method.id} value={method.name}>
+                  {method.displayName || method.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Botones */}
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              onClick={() => {
+                setIsPaymentModalOpen(false);
+                setTableForPayment(null);
+                setTableOrders([]);
+              }}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleProcessPayment}
+              disabled={isProcessingPayment || tableOrders.length === 0}
+              className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isProcessingPayment ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <CreditCard size={18} />
+                  Cobrar ${totalAmount.toFixed(2)}
                 </>
               )}
             </button>

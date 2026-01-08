@@ -64,9 +64,23 @@ public class SpacesController : ControllerBase
     {
         try
         {
+            // Validar que el request no sea null
+            if (request == null)
+            {
+                return BadRequest(new { error = "El request no puede ser nulo" });
+            }
+
+            // Validar que el nombre no sea null o vacío
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new { error = "El nombre del espacio es requerido" });
+            }
+
+            var nameTrimmed = request.Name.Trim();
+
             // Validar que el nombre del espacio no exista
             var existingSpace = await _context.Spaces
-                .FirstOrDefaultAsync(s => s.Name.ToLower() == request.Name.ToLower() && s.IsActive);
+                .FirstOrDefaultAsync(s => s.Name.ToLower() == nameTrimmed.ToLower() && s.IsActive);
 
             if (existingSpace != null)
             {
@@ -75,8 +89,8 @@ public class SpacesController : ControllerBase
 
             var space = new Space
             {
-                Name = request.Name.Trim(),
-                Description = request.Description?.Trim(),
+                Name = nameTrimmed,
+                Description = !string.IsNullOrWhiteSpace(request.Description) ? request.Description.Trim() : null,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -85,7 +99,14 @@ public class SpacesController : ControllerBase
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Espacio creado: {SpaceId} - {SpaceName}", space.Id, space.Name);
-            return CreatedAtAction(nameof(GetSpace), new { id = space.Id }, space);
+            
+            // Retornar el espacio creado directamente en lugar de CreatedAtAction para evitar problemas de serialización
+            return Ok(space);
+        }
+        catch (DbUpdateException dbEx)
+        {
+            _logger.LogError(dbEx, "Error de base de datos al crear espacio");
+            return StatusCode(500, new { error = "Error al crear el espacio en la base de datos", details = dbEx.Message });
         }
         catch (Exception ex)
         {

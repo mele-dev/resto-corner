@@ -766,6 +766,19 @@ public class AdminOrdersController : ControllerBase
             // Disparar webhook si el pedido se completó
             if (request.Status == OrderConstants.STATUS_COMPLETED)
             {
+                // Si el pedido está asociado a una mesa, actualizar el estado de la mesa a Available
+                if (order.TableId.HasValue)
+                {
+                    var table = await _context.Tables.FindAsync(order.TableId.Value);
+                    if (table != null)
+                    {
+                        table.Status = "Available";
+                        table.OrderPlacedAt = null;
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation("Estado de mesa {TableId} actualizado a Available después de completar pedido {OrderId}", table.Id, order.Id);
+                    }
+                }
+
                 // Encolar trigger de webhook
                 _ = Task.Run(() => _webhookService.TriggerWebhookAsync("order.completed", order));
                 
@@ -800,6 +813,51 @@ public class AdminOrdersController : ControllerBase
         {
             _logger.LogError(ex, "Error al actualizar estado del pedido {OrderId}", id);
             return StatusCode(500, new { error = "Error al actualizar el estado del pedido" });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza el método de pago de un pedido
+    /// </summary>
+    [HttpPatch("orders/{id}/payment-method")]
+    public async Task<ActionResult> UpdateOrderPaymentMethod(int id, [FromBody] UpdateOrderPaymentMethodRequest request)
+    {
+        try
+        {
+            var order = await _context.Orders.FindAsync(id);
+            if (order == null)
+            {
+                return NotFound(new { error = "Pedido no encontrado" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.PaymentMethod))
+            {
+                return BadRequest(new { error = "El método de pago es requerido" });
+            }
+
+            // Validar que el método de pago existe y está activo
+            var paymentMethod = await _context.PaymentMethods
+                .FirstOrDefaultAsync(pm => pm.Name != null && 
+                    pm.Name.ToLower() == request.PaymentMethod.ToLower() && pm.IsActive);
+
+            if (paymentMethod == null)
+            {
+                return BadRequest(new { error = "Método de pago no encontrado o inactivo" });
+            }
+
+            order.PaymentMethod = paymentMethod.Name;
+            order.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Método de pago del pedido {OrderId} actualizado a: {PaymentMethod}", id, paymentMethod.Name);
+
+            return Ok(order);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al actualizar método de pago del pedido {OrderId}", id);
+            return StatusCode(500, new { error = "Error al actualizar el método de pago" });
         }
     }
 
@@ -962,4 +1020,9 @@ public class UpdateOrderStatusRequest
 public class VerifyReceiptRequest
 {
     public bool IsVerified { get; set; }
+}
+
+public class UpdateOrderPaymentMethodRequest
+{
+    public string PaymentMethod { get; set; } = string.Empty;
 }
