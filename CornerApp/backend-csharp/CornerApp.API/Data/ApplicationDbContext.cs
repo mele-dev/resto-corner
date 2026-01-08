@@ -271,6 +271,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Status).IsRequired().HasMaxLength(50).HasDefaultValue("Available");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.Notes).HasMaxLength(500);
+            entity.Property(e => e.OrderPlacedAt).HasColumnType("datetime2");
             
             // Relación con Space (opcional)
             entity.HasOne(e => e.Space)

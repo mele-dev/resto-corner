@@ -44,9 +44,9 @@ public class Table
     public double? PositionY { get; set; }
     
     /// <summary>
-    /// Estado de la mesa: Available, Occupied, Reserved, Cleaning
+    /// Estado de la mesa: Available, Occupied, Reserved, Cleaning, OrderPlaced
     /// </summary>
-    public string Status { get; set; } = "Available"; // Available, Occupied, Reserved, Cleaning
+    public string Status { get; set; } = "Available"; // Available, Occupied, Reserved, Cleaning, OrderPlaced
     
     /// <summary>
     /// Si la mesa está activa (no eliminada)
@@ -57,6 +57,11 @@ public class Table
     /// Notas adicionales sobre la mesa
     /// </summary>
     public string? Notes { get; set; }
+    
+    /// <summary>
+    /// Fecha y hora en que se realizó el último pedido desde esta mesa
+    /// </summary>
+    public DateTime? OrderPlacedAt { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }

@@ -36,6 +36,11 @@ public class CreateOrderRequest
     [Range(-180, 180, ErrorMessage = "La longitud debe estar entre -180 y 180")]
     public double? CustomerLongitude { get; set; } // Coordenadas GPS del cliente (opcional)
     
+    /// <summary>
+    /// ID de la mesa desde la cual se realiza el pedido (opcional, para pedidos en mesa)
+    /// </summary>
+    public int? TableId { get; set; }
+    
     [Required(ErrorMessage = "El pedido debe contener al menos un item")]
     [MinLength(1, ErrorMessage = "El pedido debe contener al menos un item")]
     public List<OrderItemRequest> Items { get; set; } = new();

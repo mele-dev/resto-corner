@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
-import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest } from '../types';
+import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
   { value: 'Available', label: 'Disponible', color: 'text-green-700', bgColor: 'bg-green-100' },
   { value: 'Occupied', label: 'Ocupada', color: 'text-red-700', bgColor: 'bg-red-100' },
   { value: 'Reserved', label: 'Reservada', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
   { value: 'Cleaning', label: 'Limpieza', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  { value: 'OrderPlaced', label: 'Pedido Realizado', color: 'text-purple-700', bgColor: 'bg-purple-100' },
 ];
 
 export default function TablesPage() {
@@ -52,12 +53,62 @@ export default function TablesPage() {
   });
   const [spaceFormLoading, setSpaceFormLoading] = useState(false);
 
+  // Order creation state
+  const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
+  const [tableForOrder, setTableForOrder] = useState<Table | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [orderItems, setOrderItems] = useState<Array<{ id: number; name: string; price: number; quantity: number }>>([]);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [productQuantity, setProductQuantity] = useState(1);
+  const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>('cash');
+  const [orderComments, setOrderComments] = useState<string>('');
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
   const { showToast } = useToast();
 
   useEffect(() => {
     loadData();
     loadSpaces();
+    loadProducts();
+    loadPaymentMethods();
   }, []);
+
+  // Función para calcular tiempo transcurrido
+  const getTimeElapsed = (dateString: string) => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) {
+      return `${diffDays}d ${diffHours % 24}h`;
+    } else if (diffHours > 0) {
+      return `${diffHours}h ${diffMins % 60}m`;
+    } else {
+      return `${diffMins}m`;
+    }
+  };
+
+  const loadProducts = async () => {
+    try {
+      const productsData = await api.getProducts();
+      setProducts(productsData);
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
+  };
+
+  const loadPaymentMethods = async () => {
+    try {
+      const methods = await api.getPaymentMethods();
+      setPaymentMethods(methods);
+    } catch (error) {
+      console.error('Error loading payment methods:', error);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -274,6 +325,41 @@ export default function TablesPage() {
 
   const getStatusInfo = (status: TableStatus) => {
     return TABLE_STATUSES.find(s => s.value === status) || TABLE_STATUSES[0];
+  };
+
+  const openCreateOrderModal = (table: Table) => {
+    setTableForOrder(table);
+    setOrderItems([]);
+    setSelectedProductId(null);
+    setProductQuantity(1);
+    setOrderPaymentMethod('cash');
+    setOrderComments('');
+    setIsCreateOrderModalOpen(true);
+  };
+
+  const handleCreateOrder = async () => {
+    if (!tableForOrder || orderItems.length === 0) {
+      showToast('Debes agregar al menos un producto', 'error');
+      return;
+    }
+
+    try {
+      setIsCreatingOrder(true);
+      const response = await api.createOrderFromTable(tableForOrder.id, {
+        items: orderItems,
+        paymentMethod: orderPaymentMethod,
+        comments: orderComments || undefined,
+      });
+      
+      showToast(`Pedido #${response.id} creado exitosamente desde ${tableForOrder.number}`, 'success');
+      setIsCreateOrderModalOpen(false);
+      setTableForOrder(null);
+      loadData(); // Recargar mesas para actualizar estado
+    } catch (error: any) {
+      showToast(error.message || 'Error al crear el pedido', 'error');
+    } finally {
+      setIsCreatingOrder(false);
+    }
   };
 
   if (loading) {
@@ -721,7 +807,26 @@ export default function TablesPage() {
                           <div className="text-white text-center drop-shadow-lg">
                             <div className="text-sm font-bold">{table.number}</div>
                             <div className="text-[10px] opacity-90">{table.capacity}p</div>
+                            {table.status === 'OrderPlaced' && table.orderPlacedAt && (
+                              <div className="text-[9px] mt-1 opacity-75 flex items-center justify-center gap-1">
+                                <Clock size={8} />
+                                {getTimeElapsed(table.orderPlacedAt)}
+                              </div>
+                            )}
                           </div>
+                          {table.status !== 'OrderPlaced' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCreateOrderModal(table);
+                              }}
+                              className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-primary-500 hover:bg-primary-600 text-white text-xs rounded-lg shadow-lg flex items-center gap-1 transition-colors z-50"
+                              title="Crear pedido"
+                            >
+                              <ShoppingCart size={12} />
+                              Pedido
+                            </button>
+                          )}
                         </div>
                         
                         {/* Sombra debajo de la mesa */}
@@ -795,6 +900,12 @@ export default function TablesPage() {
                         {table.number}
                       </h3>
                       <p className="text-sm text-gray-500">ID: #{table.id}</p>
+                      {table.status === 'OrderPlaced' && table.orderPlacedAt && (
+                        <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                          <Clock size={12} />
+                          Pedido hace {getTimeElapsed(table.orderPlacedAt)}
+                        </p>
+                      )}
                     </div>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.bgColor} ${statusInfo.color}`}>
                       {statusInfo.label}
@@ -818,6 +929,18 @@ export default function TablesPage() {
                   </div>
 
                   <div className="flex flex-col gap-2">
+                    {table.status !== 'OrderPlaced' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCreateOrderModal(table);
+                        }}
+                        className="w-full px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                      >
+                        <ShoppingCart size={16} />
+                        Crear Pedido
+                      </button>
+                    )}
                     <select
                       value={table.status}
                       onChange={(e) => handleStatusChange(table, e.target.value as TableStatus)}
@@ -1130,6 +1253,162 @@ export default function TablesPage() {
         cancelText="Cancelar"
         type="danger"
       />
+
+      {/* Create Order Modal */}
+      <Modal
+        isOpen={isCreateOrderModalOpen}
+        onClose={() => {
+          setIsCreateOrderModalOpen(false);
+          setTableForOrder(null);
+          setOrderItems([]);
+        }}
+        title={`Crear Pedido - ${tableForOrder?.number}`}
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Agregar Producto */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Agregar Producto
+            </label>
+            <div className="flex gap-2">
+              <select
+                value={selectedProductId || ''}
+                onChange={(e) => setSelectedProductId(Number(e.target.value) || null)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                <option value="">Selecciona un producto</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} - ${product.price.toFixed(2)}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                value={productQuantity}
+                onChange={(e) => setProductQuantity(Number(e.target.value) || 1)}
+                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                placeholder="Cant."
+              />
+              <button
+                onClick={() => {
+                  if (selectedProductId) {
+                    const product = products.find(p => p.id === selectedProductId);
+                    if (product) {
+                      setOrderItems([...orderItems, {
+                        id: product.id,
+                        name: product.name,
+                        price: product.price,
+                        quantity: productQuantity,
+                      }]);
+                      setSelectedProductId(null);
+                      setProductQuantity(1);
+                    }
+                  }
+                }}
+                className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* Lista de Productos */}
+          {orderItems.length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Productos del Pedido
+              </label>
+              <div className="border border-gray-200 rounded-lg divide-y">
+                {orderItems.map((item, index) => (
+                  <div key={index} className="p-3 flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{item.name}</div>
+                      <div className="text-sm text-gray-500">
+                        {item.quantity}x ${item.price.toFixed(2)} = ${(item.quantity * item.price).toFixed(2)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setOrderItems(orderItems.filter((_, i) => i !== index))}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="text-right font-bold text-lg">
+                Total: ${orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}
+              </div>
+            </div>
+          )}
+
+          {/* Método de Pago */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Método de Pago
+            </label>
+            <select
+              value={orderPaymentMethod}
+              onChange={(e) => setOrderPaymentMethod(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              {paymentMethods.map((method) => (
+                <option key={method.id} value={method.name}>
+                  {method.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Comentarios */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Comentarios (opcional)
+            </label>
+            <textarea
+              value={orderComments}
+              onChange={(e) => setOrderComments(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              placeholder="Notas especiales para el pedido..."
+            />
+          </div>
+
+          {/* Botones */}
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              onClick={() => {
+                setIsCreateOrderModalOpen(false);
+                setTableForOrder(null);
+                setOrderItems([]);
+              }}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleCreateOrder}
+              disabled={isCreatingOrder || orderItems.length === 0}
+              className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isCreatingOrder ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                <>
+                  <ShoppingCart size={18} />
+                  Crear Pedido
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

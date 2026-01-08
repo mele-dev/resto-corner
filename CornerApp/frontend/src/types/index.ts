@@ -457,11 +457,12 @@ export interface Table {
   status: TableStatus;
   isActive: boolean;
   notes?: string;
+  orderPlacedAt?: string;
   createdAt: string;
   updatedAt?: string;
 }
 
-export type TableStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning';
+export type TableStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'OrderPlaced';
 
 export interface CreateTableRequest {
   number: string;

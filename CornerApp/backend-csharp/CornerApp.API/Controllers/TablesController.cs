@@ -5,6 +5,7 @@ using CornerApp.API.Models;
 using CornerApp.API.Data;
 using CornerApp.API.DTOs;
 using CornerApp.API.Helpers;
+using CornerApp.API.Constants;
 
 namespace CornerApp.API.Controllers;
 
@@ -263,6 +264,144 @@ public class TablesController : ControllerBase
             return StatusCode(500, new { error = "Error al actualizar el estado de la mesa", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Crea un pedido desde una mesa
+    /// </summary>
+    [HttpPost("{id}/create-order")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> CreateOrderFromTable(int id, [FromBody] CreateOrderFromTableRequest request)
+    {
+        try
+        {
+            // Verificar que la mesa existe
+            var table = await _context.Tables.FindAsync(id);
+            if (table == null)
+            {
+                return NotFound(new { error = "Mesa no encontrada" });
+            }
+
+            if (!table.IsActive)
+            {
+                return BadRequest(new { error = "La mesa no está activa" });
+            }
+
+            // Crear el request para AdminOrdersController
+            var orderRequest = new CreateOrderRequest
+            {
+                CustomerName = $"Mesa {table.Number}",
+                CustomerPhone = null,
+                CustomerEmail = null,
+                CustomerAddress = null,
+                PaymentMethod = request.PaymentMethod ?? PaymentConstants.METHOD_CASH,
+                Items = request.Items,
+                Comments = request.Comments,
+                TableId = id
+            };
+
+            // Llamar al método de creación de pedido del AdminOrdersController
+            // Necesitamos inyectar los servicios necesarios o crear el pedido directamente aquí
+            // Por ahora, vamos a crear el pedido directamente en este método
+            
+            if (orderRequest.Items == null || !orderRequest.Items.Any())
+            {
+                return BadRequest(new { error = "El pedido debe contener al menos un item" });
+            }
+
+            // Validar productos
+            var productIds = orderRequest.Items.Select(item => item.Id).Distinct().ToList();
+            var existingProducts = await _context.Products
+                .Where(p => productIds.Contains(p.Id))
+                .Select(p => p.Id)
+                .ToListAsync();
+            
+            var missingProductIds = productIds.Except(existingProducts).ToList();
+            if (missingProductIds.Any())
+            {
+                return BadRequest(new { 
+                    error = $"Los siguientes productos no existen: {string.Join(", ", missingProductIds)}" 
+                });
+            }
+
+            // Calcular total
+            var total = orderRequest.Items.Sum(item => 
+            {
+                var price = item.Price >= 0 ? item.Price : 0;
+                return price * item.Quantity;
+            });
+
+            // Obtener método de pago
+            var paymentMethodName = orderRequest.PaymentMethod ?? PaymentConstants.METHOD_CASH;
+            var paymentMethod = await _context.PaymentMethods
+                .FirstOrDefaultAsync(pm => pm.Name != null && 
+                    pm.Name.ToLower() == paymentMethodName.ToLower() && pm.IsActive);
+            
+            if (paymentMethod == null)
+            {
+                paymentMethodName = PaymentConstants.METHOD_CASH;
+            }
+            else
+            {
+                paymentMethodName = paymentMethod.Name ?? PaymentConstants.METHOD_CASH;
+            }
+
+            // Crear items del pedido
+            var orderItems = orderRequest.Items.Select(item => new OrderItem
+            {
+                ProductId = item.Id,
+                ProductName = (item.Name ?? "Producto sin nombre").Length > 200 
+                    ? (item.Name ?? "Producto sin nombre").Substring(0, 200) 
+                    : (item.Name ?? "Producto sin nombre"),
+                UnitPrice = item.Price >= 0 ? item.Price : 0,
+                Quantity = item.Quantity > 0 ? item.Quantity : 1
+            }).ToList();
+
+            // Crear el pedido
+            var order = new Order
+            {
+                CustomerName = orderRequest.CustomerName,
+                CustomerPhone = string.Empty,
+                CustomerEmail = string.Empty,
+                CustomerAddress = string.Empty,
+                Total = total,
+                PaymentMethod = paymentMethodName,
+                Status = OrderConstants.STATUS_PENDING,
+                EstimatedDeliveryMinutes = 30, // Tiempo estimado por defecto para mesas
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                Comments = orderRequest.Comments,
+                TableId = id,
+                Items = orderItems
+            };
+
+            _context.Orders.Add(order);
+            await _context.SaveChangesAsync();
+
+            // Actualizar estado de la mesa
+            table.Status = "OrderPlaced";
+            table.OrderPlacedAt = DateTime.UtcNow;
+            table.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Pedido {OrderId} creado desde mesa {TableId} - {TableNumber}", 
+                order.Id, table.Id, table.Number);
+
+            return Ok(new { 
+                id = order.Id, 
+                message = "Pedido creado exitosamente",
+                order = order,
+                table = table
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al crear pedido desde mesa {TableId}", id);
+            return StatusCode(500, new { 
+                error = "Error al crear el pedido", 
+                details = ex.Message 
+            });
+        }
+    }
 }
 
 // DTOs
@@ -292,5 +431,12 @@ public class UpdateTableRequest
 public class UpdateTableStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+}
+
+public class CreateOrderFromTableRequest
+{
+    public List<OrderItemRequest> Items { get; set; } = new();
+    public string? PaymentMethod { get; set; }
+    public string? Comments { get; set; }
 }
 

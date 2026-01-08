@@ -486,6 +486,7 @@ public class AdminOrdersController : ControllerBase
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Comments = request.Comments,
+                TableId = request.TableId, // Asignar TableId si viene en el request
                 Items = orderItems
             };
 
@@ -577,6 +578,20 @@ public class AdminOrdersController : ControllerBase
                     customer.Points += pointsToAdd;
                     customer.UpdatedAt = DateTime.UtcNow;
                     await _context.SaveChangesAsync();
+                }
+            }
+
+            // Si el pedido es de una mesa, actualizar el estado de la mesa
+            if (request.TableId.HasValue)
+            {
+                var table = await _context.Tables.FindAsync(request.TableId.Value);
+                if (table != null)
+                {
+                    table.Status = "OrderPlaced";
+                    table.OrderPlacedAt = DateTime.UtcNow;
+                    table.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation("Estado de mesa {TableId} actualizado a OrderPlaced", table.Id);
                 }
             }
 
