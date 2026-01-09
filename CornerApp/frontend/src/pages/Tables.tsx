@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
-import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod, Order } from '../types';
+import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod, Order, Category } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
   { value: 'Available', label: 'Disponible', color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -57,6 +57,8 @@ export default function TablesPage() {
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
   const [tableForOrder, setTableForOrder] = useState<Table | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [orderItems, setOrderItems] = useState<Array<{ id: number; name: string; price: number; quantity: number }>>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -106,6 +108,16 @@ export default function TablesPage() {
       setProducts(productsData);
     } catch (error) {
       console.error('Error loading products:', error);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const categoriesData = await api.getCategories();
+      // Filtrar solo categorías activas
+      setCategories(categoriesData.filter(cat => cat.isActive));
+    } catch (error) {
+      console.error('Error loading categories:', error);
     }
   };
 
@@ -340,13 +352,16 @@ export default function TablesPage() {
     return TABLE_STATUSES.find(s => s.value === status) || TABLE_STATUSES[0];
   };
 
-  const openCreateOrderModal = (table: Table) => {
+  const openCreateOrderModal = async (table: Table) => {
     setTableForOrder(table);
     setOrderItems([]);
     setSelectedProductId(null);
+    setSelectedCategoryId(null);
     setProductQuantity(1);
     setOrderPaymentMethod('cash');
     setOrderComments('');
+    // Cargar categorías cuando se abre el modal
+    await loadCategories();
     setIsCreateOrderModalOpen(true);
   };
 
@@ -1410,59 +1425,135 @@ export default function TablesPage() {
           setIsCreateOrderModalOpen(false);
           setTableForOrder(null);
           setOrderItems([]);
+          setSelectedCategoryId(null);
+          setSelectedProductId(null);
         }}
         title={`Crear Pedido - ${tableForOrder?.number}`}
         size="lg"
       >
         <div className="space-y-4">
-          {/* Agregar Producto */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Agregar Producto
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={selectedProductId || ''}
-                onChange={(e) => setSelectedProductId(Number(e.target.value) || null)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="">Selecciona un producto</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name} - ${product.price.toFixed(2)}
-                  </option>
+          {/* Selección de Categoría */}
+          {!selectedCategoryId ? (
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700">
+                Selecciona una Categoría
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    onClick={() => setSelectedCategoryId(category.id)}
+                    className="flex flex-col items-center justify-center p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
+                  >
+                    <span className="text-3xl mb-2">{category.icon || '📦'}</span>
+                    <span className="text-sm font-medium text-gray-700 text-center">
+                      {category.name}
+                    </span>
+                  </button>
                 ))}
-              </select>
-              <input
-                type="number"
-                min="1"
-                value={productQuantity}
-                onChange={(e) => setProductQuantity(Number(e.target.value) || 1)}
-                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="Cant."
-              />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Botón para volver a categorías */}
               <button
                 onClick={() => {
-                  if (selectedProductId) {
-                    const product = products.find(p => p.id === selectedProductId);
-                    if (product) {
-                      setOrderItems([...orderItems, {
-                        id: product.id,
-                        name: product.name,
-                        price: product.price,
-                        quantity: productQuantity,
-                      }]);
-                      setSelectedProductId(null);
-                      setProductQuantity(1);
-                    }
-                  }
+                  setSelectedCategoryId(null);
+                  setSelectedProductId(null);
                 }}
-                className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+                className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
               >
-                <Plus size={18} />
+                ← Volver a Categorías
               </button>
+
+              {/* Mostrar nombre de categoría seleccionada */}
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <span className="text-2xl">
+                  {categories.find(c => c.id === selectedCategoryId)?.icon || '📦'}
+                </span>
+                <span className="text-lg font-semibold text-gray-800">
+                  {categories.find(c => c.id === selectedCategoryId)?.name}
+                </span>
+              </div>
+
+              {/* Productos de la categoría seleccionada */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Selecciona un Producto
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                  {products
+                    .filter(p => p.categoryId === selectedCategoryId && p.isAvailable)
+                    .map((product) => (
+                      <button
+                        key={product.id}
+                        onClick={() => {
+                          setSelectedProductId(product.id);
+                          setProductQuantity(1);
+                        }}
+                        className={`p-3 border-2 rounded-lg text-left transition-all ${
+                          selectedProductId === product.id
+                            ? 'border-primary-500 bg-primary-50'
+                            : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="font-medium text-gray-800">{product.name}</div>
+                        {product.description && (
+                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                            {product.description}
+                          </div>
+                        )}
+                        <div className="text-sm font-bold text-primary-600 mt-2">
+                          ${product.price.toFixed(2)}
+                        </div>
+                      </button>
+                    ))}
+                </div>
+
+                {/* Si no hay productos en la categoría */}
+                {products.filter(p => p.categoryId === selectedCategoryId && p.isAvailable).length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No hay productos disponibles en esta categoría
+                  </div>
+                )}
+              </div>
+
+              {/* Cantidad y botón agregar */}
+              {selectedProductId && (
+                <div className="flex gap-2 items-center pt-2 border-t">
+                  <label className="text-sm font-medium text-gray-700">Cantidad:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={productQuantity}
+                    onChange={(e) => setProductQuantity(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                  <button
+                    onClick={() => {
+                      if (selectedProductId) {
+                        const product = products.find(p => p.id === selectedProductId);
+                        if (product) {
+                          setOrderItems([...orderItems, {
+                            id: product.id,
+                            name: product.name,
+                            price: product.price,
+                            quantity: productQuantity,
+                          }]);
+                          setSelectedProductId(null);
+                          setProductQuantity(1);
+                        }
+                      }
+                    }}
+                    className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus size={18} />
+                    Agregar al Pedido
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Lista de Productos */}
           {orderItems.length > 0 && (
@@ -1533,6 +1624,8 @@ export default function TablesPage() {
                 setIsCreateOrderModalOpen(false);
                 setTableForOrder(null);
                 setOrderItems([]);
+                setSelectedCategoryId(null);
+                setSelectedProductId(null);
               }}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
