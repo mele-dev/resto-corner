@@ -116,10 +116,34 @@ export default function TablesPage() {
   const loadCategories = async () => {
     try {
       const categoriesData = await api.getCategories();
-      // Filtrar solo categorías activas
-      setCategories(categoriesData.filter(cat => cat.isActive));
+      console.log('Categories data received:', categoriesData);
+      
+      // Validar y limpiar los datos
+      const validCategories = Array.isArray(categoriesData) 
+        ? categoriesData
+            .filter(cat => {
+              // Asegurarse de que es un objeto válido con las propiedades necesarias
+              if (!cat || typeof cat !== 'object') return false;
+              if (!('id' in cat) || !('name' in cat)) return false;
+              return true;
+            })
+            .map(cat => ({
+              id: Number(cat.id),
+              name: String(cat.name || '').trim(),
+              description: cat.description ? String(cat.description).trim() : undefined,
+              icon: cat.icon ? String(cat.icon).trim() : undefined,
+              displayOrder: Number(cat.displayOrder || 0),
+              isActive: Boolean(cat.isActive !== false),
+              createdAt: cat.createdAt ? String(cat.createdAt) : new Date().toISOString(),
+            }))
+            .filter(cat => cat.isActive && cat.name)
+        : [];
+      
+      console.log('Valid categories:', validCategories);
+      setCategories(validCategories);
     } catch (error) {
       console.error('Error loading categories:', error);
+      setCategories([]);
     }
   };
 
@@ -747,8 +771,18 @@ export default function TablesPage() {
             ) : (
               filteredTables.map((table) => {
                 const statusInfo = getStatusInfo(table.status);
-                const x = table.positionX || Math.random() * 600 + 100;
-                const y = table.positionY || Math.random() * 500 + 150;
+                // Usar posición guardada o generar una posición fija basada en el ID de la mesa
+                // Esto evita que las mesas se muevan en cada render
+                const getFixedPosition = (id: number, axis: 'x' | 'y') => {
+                  // Generar una posición pseudo-aleatoria pero determinística basada en el ID
+                  const seed = id * (axis === 'x' ? 7919 : 7907); // Números primos diferentes para x e y
+                  const random = (seed % 1000) / 1000; // Valor entre 0 y 1
+                  return axis === 'x' 
+                    ? 100 + random * 600  // Entre 100 y 700
+                    : 150 + random * 500; // Entre 150 y 650
+                };
+                const x = table.positionX ?? getFixedPosition(table.id, 'x');
+                const y = table.positionY ?? getFixedPosition(table.id, 'y');
                 
                 // Tamaño de la mesa basado en capacidad (mesa cuadrada)
                 const tableSize = Math.max(50, Math.min(80, table.capacity * 10));
@@ -1435,7 +1469,7 @@ export default function TablesPage() {
           setSelectedSubProducts([]);
         }}
         title={`Crear Pedido - ${tableForOrder?.number}`}
-        size="lg"
+        size="4xl"
       >
         <div className="space-y-4">
           {/* Selección de Categoría */}
@@ -1445,18 +1479,37 @@ export default function TablesPage() {
                 Selecciona una Categoría
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-64 overflow-y-auto">
-                {categories.map((category) => (
-                  <button
-                    key={category.id}
-                    onClick={() => setSelectedCategoryId(category.id)}
-                    className="flex flex-col items-center justify-center p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
-                  >
-                    <span className="text-3xl mb-2">{category.icon || '📦'}</span>
-                    <span className="text-sm font-medium text-gray-700 text-center">
-                      {category.name}
-                    </span>
-                  </button>
-                ))}
+                {categories
+                  .filter(cat => cat && typeof cat === 'object' && 'id' in cat && 'name' in cat)
+                  .map((category) => (
+                    <button
+                      key={category.id}
+                      onClick={() => setSelectedCategoryId(category.id)}
+                      className="flex flex-col items-center justify-center p-4 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
+                    >
+                      {category.icon && category.icon.startsWith('/') ? (
+                        <img 
+                          src={category.icon} 
+                          alt={category.name}
+                          className="w-12 h-12 object-contain mb-2"
+                          onError={(e) => {
+                            // Si la imagen falla al cargar, reemplazar con emoji
+                            const target = e.currentTarget;
+                            target.style.display = 'none';
+                            const fallback = document.createElement('span');
+                            fallback.className = 'text-3xl mb-2';
+                            fallback.textContent = '📦';
+                            target.parentNode?.replaceChild(fallback, target);
+                          }}
+                        />
+                      ) : (
+                        <span className="text-3xl mb-2">{category.icon || '📦'}</span>
+                      )}
+                      <span className="text-sm font-medium text-gray-700 text-center">
+                        {String(category.name || '').trim() || 'Sin nombre'}
+                      </span>
+                    </button>
+                  ))}
               </div>
             </div>
           ) : (
@@ -1474,9 +1527,27 @@ export default function TablesPage() {
 
               {/* Mostrar nombre de categoría seleccionada */}
               <div className="flex items-center gap-2 pb-2 border-b">
-                <span className="text-2xl">
-                  {categories.find(c => c.id === selectedCategoryId)?.icon || '📦'}
-                </span>
+                {(() => {
+                  const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+                  const icon = selectedCategory?.icon;
+                  return icon && icon.startsWith('/') ? (
+                    <img 
+                      src={icon} 
+                      alt={selectedCategory?.name || 'Categoría'}
+                      className="w-8 h-8 object-contain"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.style.display = 'none';
+                        const fallback = document.createElement('span');
+                        fallback.className = 'text-2xl';
+                        fallback.textContent = '📦';
+                        target.parentNode?.replaceChild(fallback, target);
+                      }}
+                    />
+                  ) : (
+                    <span className="text-2xl">{icon || '📦'}</span>
+                  );
+                })()}
                 <span className="text-lg font-semibold text-gray-800">
                   {categories.find(c => c.id === selectedCategoryId)?.name}
                 </span>

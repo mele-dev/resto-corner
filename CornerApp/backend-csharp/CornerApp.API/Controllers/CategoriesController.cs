@@ -36,39 +36,19 @@ public class CategoriesController : ControllerBase
     [ResponseCache(Duration = 600, Location = ResponseCacheLocation.Any)]
     public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
     {
-        // Intentar obtener desde cache
-        var cachedCategories = await _cache.GetAsync<List<Category>>(CATEGORIES_CACHE_KEY);
-        if (cachedCategories != null)
-        {
-            // Registrar cache hit
-            _metricsService?.RecordCacheHit(CATEGORIES_CACHE_KEY);
-            
-            // Generar ETag para categorías cacheadas
-            var cachedETag = ETagHelper.GenerateETag(cachedCategories);
-            
-            // Verificar si el cliente tiene el mismo ETag (304 Not Modified)
-            var cachedClientETag = Request.Headers["If-None-Match"].ToString();
-            if (!string.IsNullOrEmpty(cachedClientETag) && ETagHelper.IsETagValid(cachedClientETag, cachedETag))
-            {
-                _logger.LogInformation("Categorías no han cambiado (ETag match desde cache): {Count}", cachedCategories.Count);
-                return StatusCode(304); // Not Modified
-            }
-
-            // Agregar ETag al header de respuesta
-            Response.Headers.Append("ETag", cachedETag);
-            
-            _logger.LogInformation("Categorías obtenidas desde cache: {Count}", cachedCategories.Count);
-            return Ok(cachedCategories);
-        }
+        // Invalidar cache temporalmente para forzar recarga con datos limpios (sin Products)
+        // TODO: Remover esta línea después de que el cache se actualice naturalmente (10 minutos)
+        // Esto asegura que después de los cambios, siempre se obtengan datos frescos
+        await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
         
         // Registrar cache miss
         _metricsService?.RecordCacheMiss(CATEGORIES_CACHE_KEY);
 
         // Usar AsNoTracking para operaciones de solo lectura (mejor performance)
+        // No incluir Products para evitar problemas de serialización y mejorar performance
         var categories = await _context.Categories
             .AsNoTracking()
             .Where(c => c.IsActive)
-            .Include(c => c.Products)
             .OrderBy(c => c.DisplayOrder)
             .ToListAsync();
 
@@ -101,9 +81,9 @@ public class CategoriesController : ControllerBase
     public async Task<ActionResult<Category>> GetCategory(int id)
     {
         // Usar AsNoTracking para operaciones de solo lectura
+        // No incluir Products para evitar problemas de serialización
         var category = await _context.Categories
             .AsNoTracking()
-            .Include(c => c.Products)
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (category == null)

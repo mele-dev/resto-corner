@@ -77,6 +77,7 @@ public class OrderItem
     
     // Propiedad calculada para deserializar subproductos
     // Se serializa como JSON en lugar de ignorarse para que esté disponible en las respuestas API
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     [System.Text.Json.Serialization.JsonPropertyName("subProducts")]
     public List<OrderItemSubProduct>? SubProducts
     {

@@ -58,7 +58,19 @@ class ApiClient {
       return {} as T;
     }
 
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    
+    // Si la respuesta está envuelta en un objeto 'data', extraerlo
+    if (parsed && typeof parsed === 'object' && 'data' in parsed && Array.isArray(parsed.data)) {
+      return parsed.data as T;
+    }
+    
+    // Si la respuesta está envuelta en un objeto 'data' pero no es array, devolver el objeto completo
+    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+      return parsed.data as T;
+    }
+    
+    return parsed as T;
   }
 
   // Orders
