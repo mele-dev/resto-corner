@@ -828,8 +828,87 @@ if (app.Environment.IsDevelopment())
                 Log.Warning(ex, "Advertencia al aplicar migración de Spaces (puede que ya esté aplicada)");
             }
             
-            // Crear admin por defecto si no existe
-            var existingAdmin = await dbContext.Admins.FirstOrDefaultAsync();
+            // Agregar columna Role a Admins si no existe
+            try
+            {
+                if (dbContext.Database.IsSqlServer())
+                {
+                    Log.Information("🔍 Verificando columna Role en tabla Admins...");
+                    await dbContext.Database.ExecuteSqlRawAsync(@"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Admins]') AND name = 'Role')
+                        BEGIN
+                            ALTER TABLE [dbo].[Admins] ADD [Role] NVARCHAR(50) NULL;
+                            UPDATE [dbo].[Admins] SET [Role] = 'Employee' WHERE [Role] IS NULL;
+                            UPDATE [dbo].[Admins] SET [Role] = 'Admin' WHERE [Username] = 'admin' OR [Username] = 'berni2384@hotmail.com';
+                            ALTER TABLE [dbo].[Admins] ALTER COLUMN [Role] NVARCHAR(50) NOT NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE name = 'DF_Admins_Role')
+                            BEGIN
+                                ALTER TABLE [dbo].[Admins] ADD CONSTRAINT DF_Admins_Role DEFAULT 'Employee' FOR [Role];
+                            END
+                        END
+                    ");
+                    
+                    // Crear índice si no existe
+                    await dbContext.Database.ExecuteSqlRawAsync(@"
+                        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Admins_Role' AND object_id = OBJECT_ID(N'[dbo].[Admins]'))
+                        BEGIN
+                            CREATE INDEX [IX_Admins_Role] ON [dbo].[Admins]([Role]);
+                        END
+                    ");
+                    
+                    Log.Information("✅ Columna Role verificada/agregada en tabla Admins");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Advertencia al agregar columna Role (puede que ya exista)");
+            }
+            
+            // Crear tabla CashRegisters si no existe
+            try
+            {
+                if (dbContext.Database.IsSqlServer())
+                {
+                    Log.Information("🔍 Verificando tabla CashRegisters...");
+                    await dbContext.Database.ExecuteSqlRawAsync(@"
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[CashRegisters]') AND type in (N'U'))
+                        BEGIN
+                            CREATE TABLE [dbo].[CashRegisters] (
+                                [Id] int IDENTITY(1,1) NOT NULL,
+                                [OpenedAt] datetime2 NOT NULL,
+                                [ClosedAt] datetime2 NULL,
+                                [InitialAmount] decimal(18,2) NOT NULL,
+                                [FinalAmount] decimal(18,2) NULL,
+                                [TotalSales] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalCash] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalPOS] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalTransfer] decimal(18,2) NOT NULL DEFAULT 0,
+                                [IsOpen] bit NOT NULL,
+                                [CreatedBy] nvarchar(200) NULL,
+                                [ClosedBy] nvarchar(200) NULL,
+                                [Notes] nvarchar(1000) NULL,
+                                [CreatedAt] datetime2 NOT NULL,
+                                [UpdatedAt] datetime2 NULL,
+                                CONSTRAINT [PK_CashRegisters] PRIMARY KEY ([Id])
+                            );
+                            
+                            CREATE INDEX [IX_CashRegisters_IsOpen] ON [dbo].[CashRegisters] ([IsOpen]);
+                            CREATE INDEX [IX_CashRegisters_OpenedAt] ON [dbo].[CashRegisters] ([OpenedAt]);
+                            CREATE INDEX [IX_CashRegisters_ClosedAt] ON [dbo].[CashRegisters] ([ClosedAt]);
+                            CREATE INDEX [IX_CashRegisters_IsOpen_OpenedAt] ON [dbo].[CashRegisters] ([IsOpen], [OpenedAt]);
+                        END
+                    ");
+                    
+                    Log.Information("✅ Tabla CashRegisters verificada/creada");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Advertencia al crear tabla CashRegisters (puede que ya exista)");
+            }
+            
+            // Crear admin por defecto si no existe o actualizar contraseña si existe
+            var existingAdmin = await dbContext.Admins.FirstOrDefaultAsync(a => a.Username.ToLower() == "admin");
             if (existingAdmin == null)
             {
                 var admin = new CornerApp.API.Models.Admin
@@ -837,12 +916,21 @@ if (app.Environment.IsDevelopment())
                     Username = "admin",
                     Email = "admin@cornerapp.com",
                     Name = "Administrador",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("adminadmin123"),
+                    Role = "Admin",
                     CreatedAt = DateTime.UtcNow
                 };
                 dbContext.Admins.Add(admin);
                 await dbContext.SaveChangesAsync();
-                Log.Information("✅ Administrador por defecto creado: usuario 'admin', contraseña 'admin123'");
+                Log.Information("✅ Administrador por defecto creado: usuario 'admin', contraseña 'adminadmin123'");
+            }
+            else
+            {
+                // Actualizar contraseña del usuario admin existente
+                existingAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("adminadmin123");
+                existingAdmin.UpdatedAt = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync();
+                Log.Information("✅ Contraseña del administrador 'admin' actualizada a 'adminadmin123'");
             }
             
             // Crear usuario berni2384@hotmail.com si no existe

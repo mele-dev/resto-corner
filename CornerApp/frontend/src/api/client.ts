@@ -48,8 +48,21 @@ class ApiClient {
         throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
       }
 
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || errorData.message || `Error ${response.status}: ${response.statusText}`);
+      let errorData: any = {};
+      try {
+        const text = await response.text();
+        if (text) {
+          errorData = JSON.parse(text);
+        }
+      } catch (e) {
+        // Si no se puede parsear, usar el texto como mensaje
+        errorData = { error: await response.text().catch(() => response.statusText) };
+      }
+      
+      const errorMessage = errorData.error || errorData.message || errorData.details || `Error ${response.status}: ${response.statusText}`;
+      const error = new Error(errorMessage);
+      (error as any).response = { data: errorData, status: response.status };
+      throw error;
     }
 
     // Handle empty responses
@@ -442,6 +455,69 @@ class ApiClient {
   async getExportData(period: string = 'month') {
     return this.request<ExportOrder[]>(`/admin/api/reports/export?period=${period}`);
   }
+
+  // Cash Register
+  async getCashRegisterStatus() {
+    return this.request<{ isOpen: boolean; cashRegister?: any }>('/admin/api/cash-register/status');
+  }
+
+  async openCashRegister(initialAmount: number) {
+    return this.request<any>('/admin/api/cash-register/open', {
+      method: 'POST',
+      body: { initialAmount },
+    });
+  }
+
+  async closeCashRegister(notes?: string) {
+    return this.request<any>('/admin/api/cash-register/close', {
+      method: 'POST',
+      body: { notes },
+    });
+  }
+
+  async getCashRegisterHistory(page: number = 1, pageSize: number = 20) {
+    return this.request<{ cashRegisters: any[]; total: number; page: number; pageSize: number; totalPages: number }>(
+      `/admin/api/cash-register/history?page=${page}&pageSize=${pageSize}`
+    );
+  }
+
+  async getCashRegistersReport(period: string = 'month') {
+    return this.request<any>(`/admin/api/reports/cash-registers?period=${period}`);
+  }
+
+  async getCashRegisterMovements(cashRegisterId: number) {
+    return this.request<any>(`/admin/api/cash-register/${cashRegisterId}/movements`);
+  }
+
+  // Admin Users
+  async getAdminUsers(search?: string) {
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    return this.request<{ data: AdminUser[]; total: number }>(`/admin/api/users${query}`);
+  }
+
+  async getAdminUser(id: number) {
+    return this.request<AdminUser>(`/admin/api/users/${id}`);
+  }
+
+  async createAdminUser(user: CreateAdminUserRequest) {
+    return this.request<AdminUser>('/admin/api/users', {
+      method: 'POST',
+      body: user,
+    });
+  }
+
+  async updateAdminUser(id: number, user: UpdateAdminUserRequest) {
+    return this.request<AdminUser>(`/admin/api/users/${id}`, {
+      method: 'PUT',
+      body: user,
+    });
+  }
+
+  async deleteAdminUser(id: number) {
+    return this.request<{ message: string }>(`/admin/api/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 // Import types
@@ -486,7 +562,12 @@ import type {
   CreateSpaceRequest,
   SubProduct,
   CreateSubProductRequest,
-  UpdateSubProductRequest
+  UpdateSubProductRequest,
+  CashRegister,
+  CashRegisterStatus,
+  OpenCashRegisterRequest,
+  CloseCashRegisterRequest,
+  CashRegistersReport
 } from '../types';
 
 // Export singleton instance

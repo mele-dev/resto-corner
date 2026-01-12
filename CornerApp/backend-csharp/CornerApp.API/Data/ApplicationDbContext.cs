@@ -27,6 +27,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Reward> Rewards { get; set; }
     public DbSet<Table> Tables { get; set; }
     public DbSet<Space> Spaces { get; set; }
+    public DbSet<CashRegister> CashRegisters { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -186,17 +187,20 @@ public class ApplicationDbContext : DbContext
                 item.WithOwner().HasForeignKey("OrderId");
                 var idProperty = item.Property<int>("Id");
                 idProperty.ValueGeneratedOnAdd();
-                if (Database.IsSqlServer())
-                {
-                    idProperty.UseIdentityColumn();
-                }
+                // UseIdentityColumn funciona automáticamente con SQL Server
+                // Si se usa otro proveedor, esto será ignorado o causará un error en tiempo de migración
+                idProperty.UseIdentityColumn();
                 item.HasKey("Id");
                 item.Property(i => i.ProductId).IsRequired();
                 item.Property(i => i.ProductName).IsRequired().HasMaxLength(200);
                 item.Property(i => i.UnitPrice).HasColumnType("decimal(18,2)").IsRequired();
                 item.Property(i => i.Quantity).IsRequired();
                 item.Property(i => i.SubProductsJson).HasMaxLength(2000); // JSON string para subproductos
-                item.Ignore(i => i.SubProducts); // Ignorar propiedad calculada (se deserializa desde SubProductsJson)
+                
+                // Ignorar propiedades calculadas que no deben ser mapeadas a la base de datos
+                item.Ignore(i => i.SubProducts); // Propiedad calculada que serializa/deserializa desde SubProductsJson
+                item.Ignore(i => i.Subtotal); // Propiedad calculada (UnitPrice * Quantity)
+                
                 item.ToTable("OrderItems");
                 item.HasIndex("OrderId");
             });
@@ -240,10 +244,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Email).IsRequired().HasMaxLength(200);
             entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Role).IsRequired().HasMaxLength(50).HasDefaultValue("Employee");
             
             // Índices únicos
             entity.HasIndex(e => e.Username).IsUnique();
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.Role);
         });
 
         // Configurar Reward
@@ -311,6 +317,27 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.SpaceId);
             entity.HasIndex(e => new { e.IsActive, e.Status }); // Índice compuesto para consultas comunes
+        });
+
+        // Configurar CashRegister
+        modelBuilder.Entity<CashRegister>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.InitialAmount).HasColumnType("decimal(18,2)").IsRequired();
+            entity.Property(e => e.FinalAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalCash).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalPOS).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalTransfer).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.CreatedBy).HasMaxLength(200);
+            entity.Property(e => e.ClosedBy).HasMaxLength(200);
+            entity.Property(e => e.Notes).HasMaxLength(1000);
+            
+            // Índices para optimizar consultas
+            entity.HasIndex(e => e.IsOpen);
+            entity.HasIndex(e => e.OpenedAt);
+            entity.HasIndex(e => e.ClosedAt);
+            entity.HasIndex(e => new { e.IsOpen, e.OpenedAt }); // Índice compuesto para consultas de caja abierta
         });
     }
 }

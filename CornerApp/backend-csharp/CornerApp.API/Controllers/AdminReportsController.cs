@@ -13,7 +13,7 @@ namespace CornerApp.API.Controllers;
 [ApiController]
 [Route("admin/api/reports")]
 [Tags("Administración - Reportes")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Employee")] // Admin y Employee pueden ver reportes
 public class AdminReportsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
@@ -588,6 +588,99 @@ public class AdminReportsController : ControllerBase
         {
             _logger.LogError(ex, "Error al obtener datos de exportación");
             return StatusCode(500, new { error = "Error al obtener datos de exportación" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene reporte de cajas
+    /// </summary>
+    [HttpGet("cash-registers")]
+    public async Task<ActionResult> GetCashRegisters([FromQuery] string period = "month")
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            DateTime startDate = period.ToLower() switch
+            {
+                "week" => now.AddDays(-7),
+                "year" => now.AddYears(-1),
+                _ => now.AddMonths(-1)
+            };
+
+            var cashRegisters = await _context.CashRegisters
+                .AsNoTracking()
+                .Where(c => c.OpenedAt >= startDate)
+                .OrderByDescending(c => c.OpenedAt)
+                .ToListAsync();
+
+            var cashRegisterReports = new List<object>();
+
+            foreach (var cashRegister in cashRegisters)
+            {
+                // Obtener pedidos completados durante esta sesión de caja específica
+                // Solo pedidos creados DESPUÉS de que se abrió esta caja y ANTES de que se cerró (o ahora si está abierta)
+                var orders = await _context.Orders
+                    .AsNoTracking()
+                    .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                        && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)  // Hasta que se cerró (o ahora si está abierta)
+                        && o.Status == OrderConstants.STATUS_COMPLETED
+                        && !o.IsArchived)
+                    .ToListAsync();
+
+                var totalSales = orders.Sum(o => o.Total);
+                var totalCash = orders.Where(o => o.PaymentMethod.ToLower() == PaymentConstants.METHOD_CASH.ToLower())
+                    .Sum(o => o.Total);
+                var totalPOS = orders.Where(o => o.PaymentMethod.ToLower() == PaymentConstants.METHOD_POS.ToLower())
+                    .Sum(o => o.Total);
+                var totalTransfer = orders.Where(o => o.PaymentMethod.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower())
+                    .Sum(o => o.Total);
+
+                cashRegisterReports.Add(new
+                {
+                    id = cashRegister.Id,
+                    openedAt = cashRegister.OpenedAt,
+                    closedAt = cashRegister.ClosedAt,
+                    initialAmount = cashRegister.InitialAmount,
+                    finalAmount = cashRegister.FinalAmount ?? (cashRegister.InitialAmount + totalCash),
+                    totalSales = totalSales,
+                    totalCash = totalCash,
+                    totalPOS = totalPOS,
+                    totalTransfer = totalTransfer,
+                    ordersCount = orders.Count,
+                    isOpen = cashRegister.IsOpen,
+                    createdBy = cashRegister.CreatedBy,
+                    closedBy = cashRegister.ClosedBy,
+                    notes = cashRegister.Notes,
+                    duration = cashRegister.ClosedAt.HasValue 
+                        ? (cashRegister.ClosedAt.Value - cashRegister.OpenedAt).TotalHours 
+                        : (now - cashRegister.OpenedAt).TotalHours
+                });
+            }
+
+            var summary = new
+            {
+                totalCashRegisters = cashRegisters.Count,
+                openCashRegisters = cashRegisters.Count(c => c.IsOpen),
+                closedCashRegisters = cashRegisters.Count(c => !c.IsOpen),
+                totalSales = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalSales),
+                totalCash = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalCash),
+                totalPOS = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalPOS),
+                totalTransfer = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalTransfer)
+            };
+
+            return Ok(new
+            {
+                period,
+                startDate,
+                endDate = now,
+                summary,
+                cashRegisters = cashRegisterReports
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener reporte de cajas");
+            return StatusCode(500, new { error = "Error al obtener reporte de cajas", details = ex.Message });
         }
     }
 }
