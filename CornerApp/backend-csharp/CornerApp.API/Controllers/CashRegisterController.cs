@@ -46,10 +46,10 @@ public class CashRegisterController : ControllerBase
                 return Ok(new { isOpen = false, cashRegister = (object?)null });
             }
 
-            // Calcular totales desde los pedidos del día
-            var today = openCashRegister.OpenedAt.Date;
+            // Calcular totales desde los pedidos de ESTA sesión de caja específica
+            // Solo contar pedidos creados DESPUÉS de que se abrió esta caja
             var orders = await _context.Orders
-                .Where(o => o.CreatedAt >= today 
+                .Where(o => o.CreatedAt >= openCashRegister.OpenedAt  // Desde que se abrió esta caja
                     && o.Status == OrderConstants.STATUS_COMPLETED
                     && !o.IsArchived)
                 .ToListAsync();
@@ -153,11 +153,10 @@ public class CashRegisterController : ControllerBase
                 return BadRequest(new { error = "No hay una caja abierta para cerrar" });
             }
 
-            // Verificar que no haya mesas con pedidos pendientes
-            var today = cashRegister.OpenedAt.Date;
+            // Verificar que no haya mesas con pedidos pendientes de ESTA sesión de caja
             var pendingTableOrders = await _context.Orders
                 .Where(o => o.TableId != null
-                    && o.CreatedAt >= today
+                    && o.CreatedAt >= cashRegister.OpenedAt  // Solo pedidos de esta sesión
                     && o.Status != OrderConstants.STATUS_COMPLETED
                     && o.Status != OrderConstants.STATUS_CANCELLED
                     && !o.IsArchived)
@@ -180,9 +179,10 @@ public class CashRegisterController : ControllerBase
                 });
             }
 
-            // Calcular totales desde los pedidos del día
+            // Calcular totales desde los pedidos de ESTA sesión de caja específica
+            // Solo contar pedidos creados DESPUÉS de que se abrió esta caja
             var orders = await _context.Orders
-                .Where(o => o.CreatedAt >= today
+                .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
                     && o.Status == OrderConstants.STATUS_COMPLETED
                     && !o.IsArchived)
                 .ToListAsync();
@@ -273,16 +273,15 @@ public class CashRegisterController : ControllerBase
                 return NotFound(new { error = "Caja no encontrada" });
             }
 
-            var openedDate = cashRegister.OpenedAt.Date;
             var now = DateTime.UtcNow;
-            var closedDate = cashRegister.ClosedAt?.Date ?? now.Date;
 
-            // Obtener todos los pedidos completados durante esta sesión de caja
+            // Obtener todos los pedidos completados durante esta sesión de caja específica
+            // Solo pedidos creados DESPUÉS de que se abrió esta caja y ANTES de que se cerró (o ahora si está abierta)
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.Items)
-                .Where(o => o.CreatedAt >= openedDate
-                    && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)
+                .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                    && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)  // Hasta que se cerró (o ahora si está abierta)
                     && o.Status == OrderConstants.STATUS_COMPLETED
                     && !o.IsArchived)
                 .OrderByDescending(o => o.CreatedAt)

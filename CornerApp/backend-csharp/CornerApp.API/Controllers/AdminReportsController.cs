@@ -617,14 +617,12 @@ public class AdminReportsController : ControllerBase
 
             foreach (var cashRegister in cashRegisters)
             {
-                var openedDate = cashRegister.OpenedAt.Date;
-                var closedDate = cashRegister.ClosedAt?.Date ?? now.Date;
-
-                // Obtener pedidos completados durante esta sesión de caja
+                // Obtener pedidos completados durante esta sesión de caja específica
+                // Solo pedidos creados DESPUÉS de que se abrió esta caja y ANTES de que se cerró (o ahora si está abierta)
                 var orders = await _context.Orders
                     .AsNoTracking()
-                    .Where(o => o.CreatedAt >= openedDate
-                        && (cashRegister.ClosedAt == null || o.CreatedAt <= closedDate)
+                    .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                        && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)  // Hasta que se cerró (o ahora si está abierta)
                         && o.Status == OrderConstants.STATUS_COMPLETED
                         && !o.IsArchived)
                     .ToListAsync();
