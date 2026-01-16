@@ -1,0 +1,6 @@
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.csproj.AssemblyReference.cache
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.AssemblyInfoInputs.cache
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.AssemblyInfo.cs
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.csproj.CoreCompileInputs.cache
+C:\Users\ROG-PC\Desktop\Restaurante\Restaurante\cornerapp\temp-hash\obj\Debug\net8.0\TempHashGen.sourcelink.json

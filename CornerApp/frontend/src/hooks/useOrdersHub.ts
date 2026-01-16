@@ -64,8 +64,16 @@ export function useOrdersHub(options: UseOrdersHubOptions) {
     });
 
     connection.on('OrderUpdated', (order: Order) => {
-      console.log('🔄 useOrdersHub: Pedido actualizado:', order);
+      console.log('🔄 useOrdersHub: Pedido actualizado recibido:', {
+        id: order?.id,
+        tableId: order?.tableId,
+        table: order?.table,
+        tableNumber: order?.table?.number,
+        status: order?.status,
+        fullOrder: order
+      });
       if (optionsRef.current.onOrderUpdated) {
+        console.log('🔄 useOrdersHub: Llamando onOrderUpdated callback');
         optionsRef.current.onOrderUpdated(order);
       } else {
         console.warn('⚠️ useOrdersHub: onOrderUpdated callback no está definido');

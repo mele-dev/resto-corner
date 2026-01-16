@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import {
   Clock,
@@ -43,10 +43,16 @@ const ACTIVE_STATUSES: OrderStatus[] = ['pending', 'preparing', 'delivering'];
 export default function ActiveOrdersPage() {
   const location = useLocation();
   const [orders, setOrders] = useState<Order[]>([]);
+  const ordersRef = useRef<Order[]>([]); // Ref para acceder al estado actual sin re-render
   const [deliveryPersons, setDeliveryPersons] = useState<DeliveryPerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [isConnected, setIsConnected] = useState(false);
+  
+  // Mantener el ref sincronizado con el estado
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
 
   const [searchParams] = useSearchParams();
 
@@ -131,24 +137,285 @@ export default function ActiveOrdersPage() {
     }
   }, [showToast, playSound, orderType]);
 
+  // Función helper para filtrar pedidos según el tipo
+  const filterOrdersByType = useCallback((ordersArray: Order[]): Order[] => {
+    if (orderType === 'salon') {
+      // Solo pedidos de salón (con TableId)
+      return ordersArray.filter((o: Order) => o.tableId != null);
+    } else if (orderType === 'delivery') {
+      // Solo pedidos de delivery (sin TableId)
+      return ordersArray.filter((o: Order) => o.tableId == null);
+    }
+    // Todos los pedidos
+    return ordersArray;
+  }, [orderType]);
+
+  const loadData = useCallback(async () => {
+    try {
+      console.log('📥 ActiveOrders: Iniciando carga de datos...');
+      setLoading(true);
+      const [ordersResponse, deliveryData] = await Promise.all([
+        api.getActiveOrders(),
+        api.getActiveDeliveryPersons(),
+      ]);
+      // El backend devuelve una respuesta paginada con propiedad 'data'
+      const ordersArray = Array.isArray(ordersResponse)
+        ? ordersResponse
+        : (ordersResponse as any)?.data || [];
+      
+      console.log('📥 ActiveOrders: Datos recibidos del servidor:', {
+        totalPedidos: ordersArray.length,
+        pedidos: ordersArray.map((o: Order) => ({
+          id: o.id,
+          tableId: o.tableId,
+          tableNumber: o.table?.number,
+          status: o.status
+        }))
+      });
+      
+      // Buscar el pedido 1040 específicamente para debugging
+      const order1040 = ordersArray.find((o: Order) => o.id === 1040);
+      if (order1040) {
+        console.log('🔍 ActiveOrders: Pedido 1040 encontrado en datos del servidor:', {
+          id: order1040.id,
+          tableId: order1040.tableId,
+          tableNumber: order1040.table?.number,
+          table: order1040.table,
+          status: order1040.status
+        });
+      }
+      
+      // Filtrar según el tipo de pedido
+      const filteredOrders = filterOrdersByType(ordersArray);
+      console.log('📥 ActiveOrders: Pedidos filtrados:', {
+        orderType: orderType,
+        totalFiltrados: filteredOrders.length,
+        pedidos: filteredOrders.map((o: Order) => ({
+          id: o.id,
+          tableId: o.tableId,
+          tableNumber: o.table?.number,
+          status: o.status
+        }))
+      });
+      
+      // Buscar el pedido 1040 en los filtrados
+      const order1040Filtered = filteredOrders.find((o: Order) => o.id === 1040);
+      if (order1040Filtered) {
+        console.log('🔍 ActiveOrders: Pedido 1040 en pedidos filtrados:', {
+          id: order1040Filtered.id,
+          tableId: order1040Filtered.tableId,
+          tableNumber: order1040Filtered.table?.number,
+          table: order1040Filtered.table,
+          status: order1040Filtered.status
+        });
+      }
+      
+      setOrders(filteredOrders);
+      setDeliveryPersons(Array.isArray(deliveryData) ? deliveryData : []);
+      
+      // Verificar el estado después de actualizarlo
+      setTimeout(() => {
+        const order1040InState = ordersRef.current.find((o: Order) => o.id === 1040);
+        if (order1040InState) {
+          console.log('✅ ActiveOrders: Pedido 1040 en el estado después de setOrders:', {
+            id: order1040InState.id,
+            tableId: order1040InState.tableId,
+            tableNumber: order1040InState.table?.number,
+            table: order1040InState.table,
+            status: order1040InState.status
+          });
+        } else {
+          console.log('⚠️ ActiveOrders: Pedido 1040 NO encontrado en el estado después de setOrders');
+        }
+      }, 50);
+      
+      console.log('✅ ActiveOrders: Datos actualizados en el estado');
+    } catch (error) {
+      console.error('❌ ActiveOrders: Error al cargar pedidos activos:', error);
+      showToast('Error al cargar pedidos activos', 'error');
+      setOrders([]);
+      setDeliveryPersons([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filterOrdersByType, showToast, orderType]);
+
   const handleOrderUpdated = useCallback((order: Order) => {
-    if (ACTIVE_STATUSES.includes(order.status)) {
+    console.log('🔄 ActiveOrders: handleOrderUpdated llamado con:', {
+      id: order?.id,
+      tableId: order?.tableId,
+      table: order?.table,
+      tableNumber: order?.table?.number,
+      status: order?.status,
+      orderType: orderType,
+      orderCompleto: order
+    });
+    
+    if (!order || !order.id) {
+      console.warn('⚠️ ActiveOrders: handleOrderUpdated recibió un pedido inválido:', order);
+      return;
+    }
+    
+    // Verificar si el pedido cambió de mesa usando el ref para acceder al estado actual
+    const existingOrder = ordersRef.current.find(o => o.id === order.id);
+    console.log('🔍 ActiveOrders: Verificando cambio de mesa:', {
+      orderId: order.id,
+      existingOrder: existingOrder ? {
+        id: existingOrder.id,
+        tableId: existingOrder.tableId,
+        tableNumber: existingOrder.table?.number
+      } : null,
+      newOrder: {
+        id: order.id,
+        tableId: order.tableId,
+        tableNumber: order.table?.number
+      },
+      ordersRefLength: ordersRef.current.length,
+      ordersRefIds: ordersRef.current.map(o => ({ id: o.id, tableId: o.tableId }))
+    });
+    
+    const tableIdChanged = existingOrder && existingOrder.tableId !== order.tableId;
+    
+    // ESTRATEGIA PRINCIPAL: Si estamos en vista de salón y recibimos una notificación de OrderUpdated
+    // para un pedido con tableId, SIEMPRE forzar recarga para asegurar que la vista esté actualizada
+    // Esto es especialmente importante cuando se transfieren pedidos entre mesas
+    // (El pedido puede ya tener el nuevo tableId en el estado si se actualizó antes de que llegara la notificación)
+    if (orderType === 'salon' && order.tableId != null && ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
+      console.log('🔄 ActiveOrders: ⚠️ Notificación de OrderUpdated recibida para pedido de salón. Forzando recarga para asegurar consistencia...', {
+        orderId: order.id,
+        tableId: order.tableId,
+        tableNumber: order.table?.number,
+        existingOrder: existingOrder ? {
+          id: existingOrder.id,
+          tableId: existingOrder.tableId,
+          tableNumber: existingOrder.table?.number
+        } : 'no existe',
+        tableIdChanged: tableIdChanged
+      });
+      // Forzar recarga inmediatamente (sin setTimeout para que sea más rápido)
+      console.log('🔄 ActiveOrders: Ejecutando recarga completa INMEDIATA después de notificación OrderUpdated...');
+      loadData();
+      return; // Salir temprano, la recarga actualizará todo
+    }
+    
+    // Si el pedido cambió de mesa, forzar recarga
+    if (tableIdChanged) {
+      console.log('🔄 ActiveOrders: ⚠️⚠️⚠️ CAMBIO DE MESA DETECTADO! Forzando recarga completa...', {
+        orderId: order.id,
+        oldTableId: existingOrder.tableId,
+        oldTableNumber: existingOrder.table?.number,
+        newTableId: order.tableId,
+        newTableNumber: order.table?.number
+      });
+      // Forzar recarga completa cuando cambia la mesa para asegurar consistencia
+      setTimeout(() => {
+        console.log('🔄 ActiveOrders: Ejecutando recarga completa después de cambio de mesa...');
+        loadData();
+      }, 100);
+      return; // Salir temprano, la recarga actualizará todo
+    } 
+    
+    // Si el pedido NO existe en el estado actual pero tiene tableId y es activo,
+    // puede ser que se transfirió desde otra mesa y ahora debe aparecer en esta vista
+    // FORZAR RECARGA para asegurar que la vista se actualice correctamente
+    if (!existingOrder && order.tableId != null && ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
+      // Verificar si el pedido debería estar en esta vista
+      const shouldBeInView = orderType === 'all' || 
+                            (orderType === 'salon' && order.tableId != null) ||
+                            (orderType === 'delivery' && order.tableId == null);
+      
+      if (shouldBeInView) {
+        console.log('🔄 ActiveOrders: Pedido transferido detectado (no estaba en estado pero debería estar). Forzando recarga...', {
+          orderId: order.id,
+          tableId: order.tableId,
+          tableNumber: order.table?.number,
+          orderType: orderType,
+          shouldBeInView: shouldBeInView
+        });
+        setTimeout(() => {
+          loadData();
+        }, 100);
+        return;
+      }
+    }
+    
+    if (existingOrder) {
+      console.log('ℹ️ ActiveOrders: Pedido existe pero NO cambió de mesa:', {
+        orderId: order.id,
+        tableId: order.tableId,
+        existingTableId: existingOrder.tableId
+      });
+    } else {
+      console.log('ℹ️ ActiveOrders: Pedido no existe en el estado actual y no debería estar en esta vista:', {
+        orderId: order.id,
+        tableId: order.tableId,
+        totalOrdersInState: ordersRef.current.length,
+        orderType: orderType
+      });
+    }
+    
+    // Si no cambió de mesa, continuar con la lógica normal de actualización
+    if (ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
       // Verificar si el pedido corresponde al tipo actual
       const shouldInclude = orderType === 'all' || 
                            (orderType === 'salon' && order.tableId != null) ||
                            (orderType === 'delivery' && order.tableId == null);
       
+      console.log('🔍 ActiveOrders: Verificando si incluir pedido:', {
+        orderId: order.id,
+        shouldInclude,
+        orderType,
+        orderTableId: order.tableId,
+        isSalon: orderType === 'salon' && order.tableId != null,
+        isDelivery: orderType === 'delivery' && order.tableId == null
+      });
+      
       if (shouldInclude) {
-        setOrders(prev => prev.map(o => o.id === order.id ? order : o));
+        // Actualizar el pedido completamente, asegurando que tableId y table se actualicen
+        setOrders(prev => {
+          const existingOrder = prev.find(o => o.id === order.id);
+          console.log('📝 ActiveOrders: Pedido existente antes de actualizar:', {
+            id: existingOrder?.id,
+            tableId: existingOrder?.tableId,
+            tableNumber: existingOrder?.table?.number
+          });
+          
+          const updated = prev.map(o => {
+            if (o.id === order.id) {
+              const newOrder = {
+                ...order,
+                tableId: order.tableId,
+                table: order.table
+              };
+              console.log('✅ ActiveOrders: Actualizando pedido', order.id, {
+                oldTableId: o.tableId,
+                newTableId: newOrder.tableId,
+                oldTableNumber: o.table?.number,
+                newTableNumber: newOrder.table?.number
+              });
+              return newOrder;
+            }
+            return o;
+          });
+          
+          console.log('📊 ActiveOrders: Estado después de actualizar:', {
+            cantidad: updated.length,
+            pedidoActualizado: updated.find(o => o.id === order.id)
+          });
+          
+          return updated;
+        });
       } else {
         // Si el pedido cambió de tipo (ej: de salón a delivery), removerlo
+        console.log('⚠️ ActiveOrders: Pedido', order.id, 'cambió de tipo, removiendo de la lista');
         setOrders(prev => prev.filter(o => o.id !== order.id));
       }
     } else {
       // Si ya no es activo, removerlo
+      console.log('❌ ActiveOrders: Pedido', order.id, 'ya no es activo, removiendo');
       setOrders(prev => prev.filter(o => o.id !== order.id));
     }
-  }, [orderType]);
+  }, [orderType, loadData]);
 
   const handleOrderStatusChanged = useCallback((event: { orderId: number; status: string }) => {
     if (ACTIVE_STATUSES.includes(event.status as OrderStatus)) {
@@ -211,7 +478,11 @@ export default function ActiveOrdersPage() {
               : (ordersResponse as any)?.data || [];
             
             // Filtrar según el tipo de pedido
-            const filteredOrders = filterOrdersByType(ordersArray);
+            const filteredOrders = orderType === 'salon' 
+              ? ordersArray.filter((o: Order) => o.tableId != null)
+              : orderType === 'delivery'
+              ? ordersArray.filter((o: Order) => o.tableId == null)
+              : ordersArray;
             
             setOrders(prev => {
               const currentIds = new Set(prev.map(o => o.id));
@@ -252,44 +523,6 @@ export default function ActiveOrdersPage() {
     return () => clearInterval(interval);
   }, [isConnected, orderType]); // Incluir orderType en las dependencias
 
-  // Función helper para filtrar pedidos según el tipo
-  const filterOrdersByType = (ordersArray: Order[]): Order[] => {
-    if (orderType === 'salon') {
-      // Solo pedidos de salón (con TableId)
-      return ordersArray.filter((o: Order) => o.tableId != null);
-    } else if (orderType === 'delivery') {
-      // Solo pedidos de delivery (sin TableId)
-      return ordersArray.filter((o: Order) => o.tableId == null);
-    }
-    // Todos los pedidos
-    return ordersArray;
-  };
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [ordersResponse, deliveryData] = await Promise.all([
-        api.getActiveOrders(),
-        api.getActiveDeliveryPersons(),
-      ]);
-      // El backend devuelve una respuesta paginada con propiedad 'data'
-      const ordersArray = Array.isArray(ordersResponse)
-        ? ordersResponse
-        : (ordersResponse as any)?.data || [];
-      
-      // Filtrar según el tipo de pedido
-      const filteredOrders = filterOrdersByType(ordersArray);
-      setOrders(filteredOrders);
-      setDeliveryPersons(Array.isArray(deliveryData) ? deliveryData : []);
-    } catch (error) {
-      showToast('Error al cargar pedidos activos', 'error');
-      console.error(error);
-      setOrders([]);
-      setDeliveryPersons([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleStatusChange = async (order: Order, newStatus: OrderStatus, deliveryPersonId?: number) => {
     try {
@@ -805,6 +1038,19 @@ function OrderCard({
   const needsVerification = isTransfer && !order.isReceiptVerified;
   
   // Debug para pedido 1035
+  // Logging para debugging del pedido 1040
+  if (order.id === 1040) {
+    console.log('🔍 OrderCard: Pedido 1040 renderizado:', {
+      id: order.id,
+      tableId: order.tableId,
+      tableNumber: order.table?.number,
+      table: order.table,
+      customerName: order.customerName,
+      customerAddress: order.customerAddress,
+      fullOrder: order
+    });
+  }
+  
   if (order.id === 1035) {
     console.log('Pedido 1035 en OrderCard:', {
       id: order.id,
@@ -854,7 +1100,24 @@ function OrderCard({
       <div className="p-4 space-y-3">
         {/* Customer */}
         <div>
-          <p className="font-medium text-gray-800">{order.customerName}</p>
+          <p className="font-medium text-gray-800">
+            {/* Limpiar "Mesa X" del customerName - puede estar en diferentes formatos */}
+            {(() => {
+              if (!order.customerName) return '';
+              let cleaned = order.customerName;
+              // Remover "Mesa X" en cualquier formato (case insensitive)
+              cleaned = cleaned.replace(/Mesa\s*\d+/gi, '').trim();
+              // Remover guiones o separadores que queden al inicio o final
+              cleaned = cleaned.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
+              // Si el customerName es solo "Mesa X" o quedó vacío después de limpiar, usar un nombre genérico
+              if (!cleaned || cleaned.length === 0) {
+                return order.tableId && order.table 
+                  ? `Mesa ${order.table.number}` 
+                  : 'Cliente';
+              }
+              return cleaned;
+            })()}
+          </p>
           <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
             {order.customerPhone && (
               <span className="flex items-center gap-1">
@@ -862,10 +1125,24 @@ function OrderCard({
                 {order.customerPhone}
               </span>
             )}
+            {order.tableId && order.table && (
+              <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                🪑 Mesa {order.table.number}
+              </span>
+            )}
           </div>
           <p className="flex items-center gap-1 text-sm text-gray-500 mt-1">
             <MapPin size={12} />
-            <span className="truncate">{order.customerAddress}</span>
+            <span className="truncate">
+              {/* Limpiar "Mesa X" del customerAddress */}
+              {(() => {
+                if (!order.customerAddress) return '';
+                let cleaned = order.customerAddress;
+                cleaned = cleaned.replace(/Mesa\s*\d+/gi, '').trim();
+                cleaned = cleaned.replace(/^[-–—]\s*|\s*[-–—]$/g, '').trim();
+                return cleaned || order.customerAddress;
+              })()}
+            </span>
           </p>
         </div>
 

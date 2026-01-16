@@ -203,8 +203,17 @@ export default function TablesPage() {
     try {
       setLoading(true);
       const status = statusFilter || undefined;
-      const tablesData = await api.getTables(status);
-      setTables(tablesData);
+      // Forzar sincronización llamando sin filtro primero para que se sincronicen todas
+      if (!status) {
+        // Si no hay filtro, llamar sin parámetros para que sincronice todas las mesas
+        const tablesData = await api.getTables();
+        setTables(tablesData);
+      } else {
+        // Si hay filtro, primero sincronizar todas y luego filtrar
+        const allTables = await api.getTables();
+        const filtered = status ? allTables.filter(t => t.status === status) : allTables;
+        setTables(filtered);
+      }
     } catch (error) {
       showToast('Error al cargar mesas', 'error');
     } finally {
@@ -293,9 +302,57 @@ export default function TablesPage() {
     }
   };
 
-  const openDetailsModal = (table: Table) => {
+  const [tableHasActiveOrders, setTableHasActiveOrders] = useState(false);
+  const [isCheckingOrders, setIsCheckingOrders] = useState(false);
+  const [isFreeingTable, setIsFreeingTable] = useState(false);
+
+  const openDetailsModal = async (table: Table) => {
     setSelectedTable(table);
     setIsDetailsModalOpen(true);
+    
+    // Sincronizar estado de la mesa primero
+    try {
+      await api.syncTableStatus(table.id);
+    } catch (error) {
+      console.error('Error al sincronizar estado de mesa:', error);
+    }
+    
+    // Verificar si la mesa tiene pedidos activos
+    try {
+      setIsCheckingOrders(true);
+      const orders = await api.getOrdersByTable(table.id);
+      setTableHasActiveOrders(orders.length > 0);
+      
+      // Recargar la mesa para obtener el estado actualizado
+      const updatedTable = await api.getTable(table.id);
+      if (updatedTable) {
+        setSelectedTable(updatedTable);
+      }
+    } catch (error) {
+      console.error('Error al verificar pedidos:', error);
+      setTableHasActiveOrders(false);
+    } finally {
+      setIsCheckingOrders(false);
+    }
+  };
+
+  const handleFreeTable = async () => {
+    if (!selectedTable) return;
+
+    try {
+      setIsFreeingTable(true);
+      // Sincronizar primero
+      await api.syncTableStatus(selectedTable.id);
+      // Luego liberar
+      await api.freeTable(selectedTable.id);
+      showToast('Mesa liberada exitosamente', 'success');
+      setIsDetailsModalOpen(false);
+      loadData(); // Recargar mesas para actualizar estado
+    } catch (error: any) {
+      showToast(error.message || 'Error al liberar la mesa', 'error');
+    } finally {
+      setIsFreeingTable(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1415,6 +1472,60 @@ export default function TablesPage() {
                 </div>
               )}
             </div>
+
+            {/* Botón para liberar mesa si está ocupada pero no tiene pedidos */}
+            {(selectedTable.status === 'Occupied' || selectedTable.status === 'OrderPlaced') && (
+              <div className="pt-4 border-t space-y-2">
+                <button
+                  onClick={async () => {
+                    if (!selectedTable) return;
+                    try {
+                      await api.syncTableStatus(selectedTable.id);
+                      showToast('Estado de mesa sincronizado', 'success');
+                      // Recargar la mesa
+                      const updatedTable = await api.getTable(selectedTable.id);
+                      if (updatedTable) {
+                        setSelectedTable(updatedTable);
+                      }
+                      loadData();
+                    } catch (error: any) {
+                      showToast(error.message || 'Error al sincronizar', 'error');
+                    }
+                  }}
+                  className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 text-sm"
+                >
+                  <Clock size={16} />
+                  Sincronizar Estado
+                </button>
+                {isCheckingOrders ? (
+                  <div className="text-center text-gray-500 text-sm py-2">
+                    Verificando pedidos...
+                  </div>
+                ) : !tableHasActiveOrders ? (
+                  <button
+                    onClick={handleFreeTable}
+                    disabled={isFreeingTable}
+                    className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isFreeingTable ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Liberando...
+                      </>
+                    ) : (
+                      <>
+                        <X size={16} />
+                        Liberar Mesa
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="text-center text-sm text-gray-500 py-2">
+                    La mesa tiene pedidos activos. Debe completar o cancelar los pedidos primero.
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-4 border-t">
               <button

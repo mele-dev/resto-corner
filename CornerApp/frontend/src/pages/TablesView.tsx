@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit } from 'lucide-react';
+import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,6 +37,10 @@ export default function TablesViewPage() {
   const [tableForConsumption, setTableForConsumption] = useState<Table | null>(null);
   const [tableConsumptionOrders, setTableConsumptionOrders] = useState<Order[]>([]);
   const [loadingConsumption, setLoadingConsumption] = useState(false);
+  
+  // Table transfer modal state
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
   
   // Order creation state
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
@@ -172,6 +176,22 @@ export default function TablesViewPage() {
     try {
       setLoadingConsumption(true);
       setTableForConsumption(table);
+      
+      // Sincronizar estado de la mesa primero (si el endpoint está disponible)
+      try {
+        await api.syncTableStatus(table.id);
+        // Recargar la mesa para obtener el estado actualizado
+        const updatedTable = await api.getTable(table.id);
+        if (updatedTable) {
+          setTableForConsumption(updatedTable);
+        }
+      } catch (error: any) {
+        // Si el endpoint no existe (404), simplemente continuar
+        // El endpoint puede no estar disponible si el backend no se ha reiniciado
+        if (error?.response?.status !== 404) {
+          console.error('Error al sincronizar estado de mesa:', error);
+        }
+      }
       
       // Obtener todos los pedidos primero para debug
       const allOrdersResponse = await api.getOrders({ showArchived: false });
@@ -1364,37 +1384,224 @@ export default function TablesViewPage() {
               <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
                 ⚙️ Acciones
               </h3>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={() => {
-                    setIsTableConsumptionModalOpen(false);
-                    if (tableForConsumption) {
-                      openCreateOrderModal(tableForConsumption);
-                    }
-                  }}
-                  className="flex-1 px-4 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium flex items-center justify-center gap-2"
-                >
-                  <ShoppingCart size={20} />
-                  Agregar Productos
-                </button>
+              <div className="flex flex-col gap-3">
+                {/* Si no hay pedidos activos y la mesa está ocupada, mostrar opciones para liberar */}
+                {(!tableConsumptionOrders || tableConsumptionOrders.length === 0) && 
+                 (tableForConsumption?.status === 'Occupied' || tableForConsumption?.status === 'OrderPlaced') && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={async () => {
+                        if (!tableForConsumption) return;
+                        try {
+                          await api.syncTableStatus(tableForConsumption.id);
+                          showToast('Estado de mesa sincronizado', 'success');
+                          // Recargar la mesa
+                          const updatedTable = await api.getTable(tableForConsumption.id);
+                          if (updatedTable) {
+                            setTableForConsumption(updatedTable);
+                          }
+                          await loadData();
+                        } catch (error: any) {
+                          // Si el endpoint no existe, intentar usar freeTable directamente
+                          if (error?.response?.status === 404) {
+                            try {
+                              await api.freeTable(tableForConsumption.id);
+                              showToast('Mesa liberada exitosamente', 'success');
+                              const updatedTable = await api.getTable(tableForConsumption.id);
+                              if (updatedTable) {
+                                setTableForConsumption(updatedTable);
+                              }
+                              await loadData();
+                            } catch (freeError: any) {
+                              showToast(freeError.message || 'Error al liberar la mesa', 'error');
+                            }
+                          } else {
+                            showToast(error.message || 'Error al sincronizar', 'error');
+                          }
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <Clock size={20} />
+                      Sincronizar Estado
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!tableForConsumption) return;
+                        try {
+                          // Intentar sincronizar primero (si está disponible)
+                          try {
+                            await api.syncTableStatus(tableForConsumption.id);
+                          } catch (syncError: any) {
+                            // Si falla, continuar con freeTable
+                            if (syncError?.response?.status !== 404) {
+                              console.error('Error al sincronizar:', syncError);
+                            }
+                          }
+                          // Luego liberar
+                          await api.freeTable(tableForConsumption.id);
+                          showToast('Mesa liberada exitosamente', 'success');
+                          setIsTableConsumptionModalOpen(false);
+                          await loadData();
+                        } catch (error: any) {
+                          showToast(error.message || 'Error al liberar la mesa', 'error');
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <X size={20} />
+                      Liberar Mesa
+                    </button>
+                  </div>
+                )}
+                {/* Botón de transferencia si hay pedidos activos */}
                 {tableConsumptionOrders && tableConsumptionOrders.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setIsTransferModalOpen(true);
+                    }}
+                    className="w-full px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors font-medium flex items-center justify-center gap-2"
+                  >
+                    <ArrowRight size={20} />
+                    Transferir a Otra Mesa
+                  </button>
+                )}
+                <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={() => {
                       setIsTableConsumptionModalOpen(false);
                       if (tableForConsumption) {
-                        openPaymentModal(tableForConsumption);
+                        openCreateOrderModal(tableForConsumption);
                       }
                     }}
-                    className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium flex items-center justify-center gap-2"
                   >
-                    <CreditCard size={20} />
-                    Cobrar ${(tableConsumptionOrders || []).reduce((sum, order) => sum + (order?.total || 0), 0).toFixed(2)}
+                    <ShoppingCart size={20} />
+                    Agregar Productos
                   </button>
-                )}
+                  {tableConsumptionOrders && tableConsumptionOrders.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setIsTableConsumptionModalOpen(false);
+                        if (tableForConsumption) {
+                          openPaymentModal(tableForConsumption);
+                        }
+                      }}
+                      className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <CreditCard size={20} />
+                      Cobrar ${(tableConsumptionOrders || []).reduce((sum, order) => sum + (order?.total || 0), 0).toFixed(2)}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         ) : null}
+      </Modal>
+
+      {/* Transfer Table Modal */}
+      <Modal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        title={`Transferir Pedidos - Mesa ${tableForConsumption?.number}`}
+        size="md"
+      >
+        {tableForConsumption && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200">
+              <p className="text-sm text-gray-700 mb-2">
+                <strong>Mesa Origen:</strong> Mesa {tableForConsumption.number}
+              </p>
+              <p className="text-sm text-gray-700">
+                <strong>Pedidos a transferir:</strong> {tableConsumptionOrders.length} pedido(s) activo(s)
+              </p>
+              <p className="text-sm text-gray-600 mt-2">
+                Total: ${(tableConsumptionOrders || []).reduce((sum, order) => sum + (order?.total || 0), 0).toFixed(2)}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Selecciona la Mesa Destino (debe estar disponible):
+              </label>
+              <div className="max-h-64 overflow-y-auto border-2 border-gray-200 rounded-lg">
+                {tables
+                  .filter(t => t.id !== tableForConsumption.id && t.status === 'Available' && t.isActive)
+                  .length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <TableIcon size={48} className="mx-auto mb-2 text-gray-300" />
+                    <p>No hay mesas disponibles para transferir</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 p-2">
+                    {tables
+                      .filter(t => t.id !== tableForConsumption.id && t.status === 'Available' && t.isActive)
+                      .map(table => (
+                        <button
+                          key={table.id}
+                          onClick={async () => {
+                            if (!tableForConsumption) return;
+                            
+                            if (!confirm(`¿Transferir ${tableConsumptionOrders.length} pedido(s) de la Mesa ${tableForConsumption.number} a la Mesa ${table.number}?`)) {
+                              return;
+                            }
+
+                            try {
+                              setIsTransferring(true);
+                              const result = await api.transferTableOrders(tableForConsumption.id, table.id);
+                              showToast(result.message, 'success');
+                              setIsTransferModalOpen(false);
+                              setIsTableConsumptionModalOpen(false);
+                              await loadData();
+                              // Forzar recarga de pedidos activos si la página está abierta
+                              // SignalR debería actualizar automáticamente, pero esto es un respaldo
+                              if (window.location.pathname.includes('/admin/active-orders')) {
+                                window.location.reload();
+                              }
+                            } catch (error: any) {
+                              showToast(error.message || 'Error al transferir los pedidos', 'error');
+                            } finally {
+                              setIsTransferring(false);
+                            }
+                          }}
+                          disabled={isTransferring}
+                          className="p-4 border-2 border-green-200 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                              <TableIcon size={20} className="text-green-600" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-800">Mesa {table.number}</p>
+                              <p className="text-xs text-gray-500">Capacidad: {table.capacity} personas</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {isTransferring && (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-2"></div>
+                <p className="text-sm text-gray-600">Transfiriendo pedidos...</p>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t">
+              <button
+                onClick={() => setIsTransferModalOpen(false)}
+                disabled={isTransferring}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Payment Modal */}

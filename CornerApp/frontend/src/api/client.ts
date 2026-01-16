@@ -88,7 +88,8 @@ class ApiClient {
 
   // Orders
   async getActiveOrders() {
-    return this.request<Order[]>('/admin/api/orders/active');
+    // Agregar timestamp para evitar caché cuando se fuerza recarga después de transferencia
+    return this.request<Order[]>(`/admin/api/orders/active?t=${Date.now()}`);
   }
 
   async getOrderStats() {
@@ -357,7 +358,33 @@ class ApiClient {
   }
 
   async updateTableStatus(id: number, status: string) {
-    return this.request<Table>(`/api/tables/${id}/status`, { method: 'PATCH', body: { status } });
+    return this.request<Table>(`/api/tables/${id}/status`, {
+      method: 'PATCH',
+      body: { status },
+    });
+  }
+
+  async freeTable(id: number) {
+    return this.request<{ message: string; table: Table }>(`/api/tables/${id}/free`, {
+      method: 'POST',
+    });
+  }
+
+  async syncTableStatus(id: number) {
+    return this.request<{ message: string; oldStatus?: string; newStatus?: string; status?: string; table: Table }>(`/api/tables/${id}/sync-status`, {
+      method: 'POST',
+    });
+  }
+
+  async transferTableOrders(sourceTableId: number, targetTableId: number) {
+    return this.request<{ 
+      message: string; 
+      transferredOrdersCount: number; 
+      sourceTable: { id: number; number: string; status: string }; 
+      targetTable: { id: number; number: string; status: string } 
+    }>(`/api/tables/${sourceTableId}/transfer-to/${targetTableId}`, {
+      method: 'POST',
+    });
   }
 
   async createOrderFromTable(tableId: number, data: { items: Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>; paymentMethod?: string; comments?: string }) {

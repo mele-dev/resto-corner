@@ -954,10 +954,12 @@ if (app.Environment.IsDevelopment())
             else
             {
                 // Actualizar contraseña si el usuario ya existe
-                existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("berni1");
+                // CAMBIA "TuNuevaContraseña123" por la contraseña que quieras usar
+                var newPassword = "TuNuevaContraseña123"; // ⚠️ CAMBIA ESTA CONTRASEÑA
+                existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
                 existingUser.UpdatedAt = DateTime.UtcNow;
                 await dbContext.SaveChangesAsync();
-                Log.Information("✅ Contraseña actualizada para usuario: {Email}", email);
+                Log.Information("✅ Contraseña actualizada para usuario: {Email} a: {Password}", email, newPassword);
             }
             
             // Crear repartidor Diego si no existe

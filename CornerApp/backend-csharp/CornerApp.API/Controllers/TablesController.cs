@@ -17,11 +17,16 @@ public class TablesController : ControllerBase
 {
     private readonly ILogger<TablesController> _logger;
     private readonly ApplicationDbContext _context;
+    private readonly CornerApp.API.Hubs.IOrderNotificationService _orderNotificationService;
 
-    public TablesController(ILogger<TablesController> logger, ApplicationDbContext context)
+    public TablesController(
+        ILogger<TablesController> logger, 
+        ApplicationDbContext context,
+        CornerApp.API.Hubs.IOrderNotificationService orderNotificationService)
     {
         _logger = logger;
         _context = context;
+        _orderNotificationService = orderNotificationService;
     }
 
     /// <summary>
@@ -31,7 +36,6 @@ public class TablesController : ControllerBase
     public async Task<ActionResult<IEnumerable<Table>>> GetTables([FromQuery] string? status = null)
     {
         var query = _context.Tables
-            .AsNoTracking()
             .Where(t => t.IsActive);
 
         if (!string.IsNullOrEmpty(status))
@@ -44,7 +48,127 @@ public class TablesController : ControllerBase
             .OrderBy(t => t.Number)
             .ToListAsync();
 
-        return Ok(tables);
+        _logger.LogInformation("📊 Sincronizando estado de {Count} mesas con pedidos activos", tables.Count);
+
+        // Sincronizar estado de mesas con pedidos activos
+        foreach (var table in tables)
+        {
+            await SyncTableStatusWithOrders(table);
+        }
+
+        // Guardar cambios si hubo actualizaciones
+        var changesSaved = await _context.SaveChangesAsync();
+        _logger.LogInformation("💾 Cambios guardados en base de datos: {ChangesCount} entidades modificadas", changesSaved);
+
+        // Recargar las mesas desde la base de datos para asegurar que tenemos el estado actualizado
+        // Esto es importante porque SaveChanges puede haber actualizado el estado
+        var tableIds = tables.Select(t => t.Id).ToList();
+        var updatedTables = await _context.Tables
+            .AsNoTracking()
+            .Include(t => t.Space)
+            .Where(t => tableIds.Contains(t.Id))
+            .OrderBy(t => t.Number)
+            .ToListAsync();
+
+        // Devolver las mesas actualizadas
+        var result = updatedTables;
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Sincroniza el estado de una mesa basándose en sus pedidos activos
+    /// </summary>
+    private async Task SyncTableStatusWithOrders(Table table)
+    {
+        try
+        {
+            // Verificar si la mesa tiene pedidos activos (cualquier estado que no sea completed o cancelled)
+            var activeOrders = await _context.Orders
+                .Where(o => o.TableId == table.Id 
+                    && !o.IsArchived 
+                    && o.Status != OrderConstants.STATUS_COMPLETED 
+                    && o.Status != OrderConstants.STATUS_CANCELLED)
+                .ToListAsync();
+
+            var hasActiveOrders = activeOrders.Any();
+            var oldStatus = table.Status;
+
+            _logger.LogInformation("Sincronizando mesa {TableId} - {TableNumber}: Estado actual={Status}, Pedidos activos={Count} (IDs: {OrderIds})", 
+                table.Id, table.Number, oldStatus, activeOrders.Count, string.Join(", ", activeOrders.Select(o => o.Id)));
+
+            // Si tiene pedidos activos pero está marcada como Available, actualizar a Occupied
+            if (hasActiveOrders && table.Status == "Available")
+            {
+                table.Status = "Occupied";
+                table.UpdatedAt = DateTime.UtcNow;
+                _logger.LogInformation("✅ Mesa {TableId} - {TableNumber} sincronizada: {OldStatus} -> Occupied (tiene {Count} pedidos activos)", 
+                    table.Id, table.Number, oldStatus, activeOrders.Count);
+            }
+            // Si no tiene pedidos activos pero está marcada como Occupied u OrderPlaced, actualizar a Available
+            else if (!hasActiveOrders && (table.Status == "Occupied" || table.Status == "OrderPlaced"))
+            {
+                table.Status = "Available";
+                table.UpdatedAt = DateTime.UtcNow;
+                _logger.LogInformation("✅ Mesa {TableId} - {TableNumber} sincronizada: {OldStatus} -> Available (sin pedidos activos)", 
+                    table.Id, table.Number, oldStatus);
+            }
+            else
+            {
+                _logger.LogInformation("ℹ️ Mesa {TableId} - {TableNumber} no requiere sincronización: Estado={Status}, Tiene pedidos activos={HasActive}", 
+                    table.Id, table.Number, oldStatus, hasActiveOrders);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error al sincronizar estado de mesa {TableId} - {TableNumber}", table.Id, table.Number);
+        }
+    }
+
+    /// <summary>
+    /// Endpoint para sincronizar manualmente el estado de una mesa
+    /// </summary>
+    [HttpPost("{id}/sync-status")]
+    [Authorize]
+    public async Task<ActionResult<Table>> SyncTableStatus(int id)
+    {
+        try
+        {
+            var table = await _context.Tables.FindAsync(id);
+            if (table == null)
+            {
+                return NotFound(new { error = "Mesa no encontrada" });
+            }
+
+            var oldStatus = table.Status;
+            await SyncTableStatusWithOrders(table);
+            await _context.SaveChangesAsync();
+
+            if (oldStatus != table.Status)
+            {
+                _logger.LogInformation("Estado de mesa {TableId} - {TableNumber} sincronizado manualmente: {OldStatus} -> {NewStatus}", 
+                    table.Id, table.Number, oldStatus, table.Status);
+                return Ok(new { 
+                    message = "Estado de mesa sincronizado",
+                    oldStatus = oldStatus,
+                    newStatus = table.Status,
+                    table = table
+                });
+            }
+            else
+            {
+                return Ok(new { 
+                    message = "El estado de la mesa ya está sincronizado",
+                    status = table.Status,
+                    table = table
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al sincronizar estado de mesa {TableId}", id);
+            return StatusCode(500, new { error = "Error al sincronizar el estado de la mesa", details = ex.Message });
+        }
     }
 
     /// <summary>
@@ -54,7 +178,6 @@ public class TablesController : ControllerBase
     public async Task<ActionResult<Table>> GetTable(int id)
     {
         var table = await _context.Tables
-            .AsNoTracking()
             .Include(t => t.Orders.Where(o => !o.IsArchived))
             .FirstOrDefaultAsync(t => t.Id == id);
 
@@ -63,7 +186,30 @@ public class TablesController : ControllerBase
             return NotFound(new { error = "Mesa no encontrada" });
         }
 
-        return Ok(table);
+        // Sincronizar estado de la mesa con pedidos activos
+        await SyncTableStatusWithOrders(table);
+        await _context.SaveChangesAsync();
+
+        // Devolver como AsNoTracking después de sincronizar
+        var result = new Table
+        {
+            Id = table.Id,
+            Number = table.Number,
+            Capacity = table.Capacity,
+            Location = table.Location,
+            SpaceId = table.SpaceId,
+            PositionX = table.PositionX,
+            PositionY = table.PositionY,
+            Status = table.Status,
+            IsActive = table.IsActive,
+            Notes = table.Notes,
+            OrderPlacedAt = table.OrderPlacedAt,
+            CreatedAt = table.CreatedAt,
+            UpdatedAt = table.UpdatedAt,
+            Orders = table.Orders
+        };
+
+        return Ok(result);
     }
 
     /// <summary>
@@ -266,6 +412,187 @@ public class TablesController : ControllerBase
     }
 
     /// <summary>
+    /// Transfiere pedidos activos de una mesa a otra
+    /// </summary>
+    [HttpPost("{id}/transfer-to/{targetTableId}")]
+    [Authorize]
+    public async Task<ActionResult> TransferTableOrders(int id, int targetTableId)
+    {
+        try
+        {
+            // Verificar que ambas mesas existan
+            var sourceTable = await _context.Tables.FindAsync(id);
+            if (sourceTable == null)
+            {
+                return NotFound(new { error = "Mesa origen no encontrada" });
+            }
+
+            var targetTable = await _context.Tables.FindAsync(targetTableId);
+            if (targetTable == null)
+            {
+                return NotFound(new { error = "Mesa destino no encontrada" });
+            }
+
+            // Verificar que la mesa destino esté disponible
+            if (targetTable.Status != "Available")
+            {
+                return BadRequest(new { error = "La mesa destino debe estar disponible para transferir pedidos" });
+            }
+
+            // Verificar que la mesa origen tenga pedidos activos
+            var activeOrders = await _context.Orders
+                .Where(o => o.TableId == id 
+                    && !o.IsArchived 
+                    && o.Status != OrderConstants.STATUS_COMPLETED 
+                    && o.Status != OrderConstants.STATUS_CANCELLED)
+                .ToListAsync();
+
+            if (activeOrders.Count == 0)
+            {
+                return BadRequest(new { error = "La mesa origen no tiene pedidos activos para transferir" });
+            }
+
+            // Transferir todos los pedidos activos a la mesa destino
+            foreach (var order in activeOrders)
+            {
+                order.TableId = targetTableId;
+                order.UpdatedAt = DateTime.UtcNow;
+                
+                // Actualizar CustomerName si contiene "Mesa X" para reflejar la nueva mesa
+                if (!string.IsNullOrEmpty(order.CustomerName) && order.CustomerName.Contains("Mesa"))
+                {
+                    // Reemplazar el número de mesa anterior con el nuevo
+                    order.CustomerName = System.Text.RegularExpressions.Regex.Replace(
+                        order.CustomerName, 
+                        @"Mesa\s*\d+", 
+                        $"Mesa {targetTable.Number}",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                    );
+                }
+            }
+
+            // Actualizar estados de las mesas
+            sourceTable.Status = "Available";
+            sourceTable.OrderPlacedAt = null;
+            sourceTable.UpdatedAt = DateTime.UtcNow;
+
+            targetTable.Status = "Occupied";
+            targetTable.OrderPlacedAt = activeOrders
+                .OrderByDescending(o => o.CreatedAt)
+                .FirstOrDefault()?.CreatedAt ?? DateTime.UtcNow;
+            targetTable.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // Notificar via SignalR que los pedidos fueron actualizados (cambio de mesa)
+            // Recargar los pedidos con sus relaciones para enviarlos completos
+            // IMPORTANTE: Recargar DESPUÉS de SaveChanges para obtener los valores actualizados
+            var orderIds = activeOrders.Select(o => o.Id).ToList();
+            var ordersWithDetails = await _context.Orders
+                .AsNoTracking()
+                .Include(o => o.Items)
+                .Include(o => o.Table)
+                .Include(o => o.DeliveryPerson)
+                .Where(o => orderIds.Contains(o.Id))
+                .ToListAsync();
+
+            _logger.LogInformation("📤 Enviando notificaciones SignalR para {Count} pedidos transferidos", ordersWithDetails.Count);
+
+            foreach (var order in ordersWithDetails)
+            {
+                try
+                {
+                    _logger.LogInformation("📤 Enviando notificación SignalR para pedido {OrderId} - TableId: {TableId}, TableNumber: {TableNumber}", 
+                        order.Id, order.TableId, order.Table?.Number ?? "null");
+                    
+                    await _orderNotificationService.NotifyOrderUpdated(order);
+                    
+                    _logger.LogInformation("✅ Notificación SignalR enviada exitosamente para pedido transferido {OrderId} (Mesa {TableId} - {TableNumber})", 
+                        order.Id, order.TableId, order.Table?.Number ?? "N/A");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ No se pudo enviar notificación SignalR para pedido transferido {OrderId}", order.Id);
+                }
+            }
+
+            _logger.LogInformation("Transferidos {Count} pedidos de mesa {SourceTableId} ({SourceNumber}) a mesa {TargetTableId} ({TargetNumber})", 
+                activeOrders.Count, sourceTable.Id, sourceTable.Number, targetTable.Id, targetTable.Number);
+
+            return Ok(new { 
+                message = $"Se transfirieron {activeOrders.Count} pedido(s) de la Mesa {sourceTable.Number} a la Mesa {targetTable.Number}",
+                transferredOrdersCount = activeOrders.Count,
+                sourceTable = new { id = sourceTable.Id, number = sourceTable.Number, status = sourceTable.Status },
+                targetTable = new { id = targetTable.Id, number = targetTable.Number, status = targetTable.Status }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al transferir pedidos de mesa {SourceTableId} a mesa {TargetTableId}", id, targetTableId);
+            return StatusCode(500, new { error = "Error al transferir los pedidos", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Libera una mesa si no tiene pedidos activos
+    /// </summary>
+    [HttpPost("{id}/free")]
+    public async Task<ActionResult<Table>> FreeTable(int id)
+    {
+        try
+        {
+            var table = await _context.Tables.FindAsync(id);
+            if (table == null)
+            {
+                return NotFound(new { error = "Mesa no encontrada" });
+            }
+
+            // Sincronizar estado primero para asegurar que esté actualizado
+            await SyncTableStatusWithOrders(table);
+            await _context.SaveChangesAsync();
+
+            // Verificar nuevamente si la mesa tiene pedidos activos después de sincronizar
+            var hasActiveOrders = await _context.Orders
+                .AnyAsync(o => o.TableId == id 
+                    && !o.IsArchived 
+                    && o.Status != OrderConstants.STATUS_COMPLETED 
+                    && o.Status != OrderConstants.STATUS_CANCELLED);
+
+            if (hasActiveOrders)
+            {
+                return BadRequest(new { error = "No se puede liberar la mesa porque tiene pedidos activos" });
+            }
+
+            // Si la mesa está ocupada pero no tiene pedidos, liberarla
+            if (table.Status == "Occupied" || table.Status == "OrderPlaced")
+            {
+                table.Status = "Available";
+                table.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Mesa liberada manualmente: {TableId} - {TableNumber}", table.Id, table.Number);
+                return Ok(new { 
+                    message = "Mesa liberada exitosamente",
+                    table = table
+                });
+            }
+            else
+            {
+                // La mesa ya está disponible o en otro estado
+                return Ok(new { 
+                    message = "La mesa ya está disponible",
+                    table = table
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al liberar mesa {TableId}", id);
+            return StatusCode(500, new { error = "Error al liberar la mesa", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Crea un pedido desde una mesa (Admin y Employee pueden crear pedidos)
     /// </summary>
     [HttpPost("{id}/create-order")]
@@ -408,12 +735,16 @@ public class TablesController : ControllerBase
             _context.Orders.Add(order);
             await _context.SaveChangesAsync();
 
-            // Actualizar estado de la mesa solo si está disponible
-            // Si ya está ocupada o tiene pedidos, mantener el estado actual
+            // Actualizar estado de la mesa a Occupied si tiene pedidos activos
+            // Sincronizar estado basándose en pedidos activos
+            await SyncTableStatusWithOrders(table);
+            
+            // Si después de sincronizar sigue en Available, cambiarla a Occupied
             if (table.Status == "Available")
             {
                 table.Status = "Occupied";
             }
+            
             // Actualizar OrderPlacedAt para mostrar el último pedido
             table.OrderPlacedAt = DateTime.UtcNow;
             table.UpdatedAt = DateTime.UtcNow;

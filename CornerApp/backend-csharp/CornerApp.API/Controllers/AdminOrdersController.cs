@@ -775,16 +775,34 @@ public class AdminOrdersController : ControllerBase
             // Disparar webhook si el pedido se completó
             if (request.Status == OrderConstants.STATUS_COMPLETED)
             {
-                // Si el pedido está asociado a una mesa, actualizar el estado de la mesa a Available
+                // Si el pedido está asociado a una mesa, verificar si hay otros pedidos activos
                 if (order.TableId.HasValue)
                 {
                     var table = await _context.Tables.FindAsync(order.TableId.Value);
                     if (table != null)
                     {
-                        table.Status = "Available";
-                        table.OrderPlacedAt = null;
+                        // Verificar si hay otros pedidos activos en esta mesa
+                        var hasOtherActiveOrders = await _context.Orders
+                            .AnyAsync(o => o.TableId == table.Id 
+                                && o.Id != order.Id
+                                && !o.IsArchived 
+                                && o.Status != OrderConstants.STATUS_COMPLETED 
+                                && o.Status != OrderConstants.STATUS_CANCELLED);
+
+                        // Solo actualizar a Available si no hay otros pedidos activos
+                        if (!hasOtherActiveOrders)
+                        {
+                            table.Status = "Available";
+                            table.OrderPlacedAt = null;
+                            _logger.LogInformation("Estado de mesa {TableId} actualizado a Available después de completar pedido {OrderId} (sin otros pedidos activos)", table.Id, order.Id);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Mesa {TableId} mantiene estado {Status} porque tiene otros pedidos activos", table.Id, table.Status);
+                        }
+                        
+                        table.UpdatedAt = DateTime.UtcNow;
                         await _context.SaveChangesAsync();
-                        _logger.LogInformation("Estado de mesa {TableId} actualizado a Available después de completar pedido {OrderId}", table.Id, order.Id);
                     }
                 }
 
