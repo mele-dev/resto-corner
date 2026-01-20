@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { MapView, Marker, Polyline } from '../utils/maps';
 
 const OrderTrackingScreen = () => {
   const navigation = useNavigation();

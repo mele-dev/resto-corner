@@ -14,22 +14,22 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5002',
         changeOrigin: true,
         secure: false,
       },
       '/admin/api': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5002',
         changeOrigin: true,
         secure: false,
       },
       '/images': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5002',
         changeOrigin: true,
         secure: false,
       },
       '/hubs': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5002',
         changeOrigin: true,
         ws: true, // Habilitar WebSocket proxy para SignalR
         secure: false,

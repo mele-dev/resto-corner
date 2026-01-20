@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Alert,
   AppState,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,8 +25,8 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LOCATION_TASK_NAME } from '../services/locationTask';
-import MapView, { Marker, Polyline } from 'react-native-maps';
 import { geocodeAddress } from '../services/geocoding';
+import { MapView, Marker, Polyline } from '../utils/maps';
 
 const DeliveryOrderDetailScreen = () => {
   const navigation = useNavigation();

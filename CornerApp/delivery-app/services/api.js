@@ -184,33 +184,40 @@ const getLocalIP = async () => {
 
 const getBaseUrl = async () => {
   if (__DEV__) {
+    // Web: usar localhost directamente
+    if (Platform.OS === 'web') {
+      return 'http://localhost:5002';
+    }
+    
     // Android Emulator (Expo/Android Studio)
     if (Platform.OS === 'android' && Platform.isTV === false) {
       // Para emulador Android, usa 10.0.2.2
       // Para Expo Go en dispositivo Android físico, detecta la IP automáticamente
-      // return 'http://10.0.2.2:5000'; // Descomenta para emulador
+      // return 'http://10.0.2.2:5002'; // Descomenta para emulador
       const ip = await getLocalIP();
-      return `http://${ip}:5000`;
+      return `http://${ip}:5002`;
     }
     
     // iOS Simulator o Expo Go iOS
     if (Platform.OS === 'ios') {
       // Para iOS Simulator, localhost funciona
       // Para Expo Go en dispositivo iOS físico, detecta la IP automáticamente
-      // return 'http://localhost:5000'; // Descomenta para simulador
+      // return 'http://localhost:5002'; // Descomenta para simulador
       const ip = await getLocalIP();
-      return `http://${ip}:5000`;
+      return `http://${ip}:5002`;
     }
     
     // Fallback: Detectar IP automáticamente
     const ip = await getLocalIP();
-    return `http://${ip}:5000`;
+    return `http://${ip}:5002`;
   }
   return 'https://tu-backend.com'; // Producción
 };
 
 // Inicializar API_BASE_URL de forma asíncrona
-let API_BASE_URL = 'http://192.168.1.36:5000'; // Valor por defecto
+// Para web, usar localhost directamente
+// Para móvil, se actualizará automáticamente con la IP detectada
+let API_BASE_URL = Platform.OS === 'web' ? 'http://localhost:5002' : 'http://192.168.43.17:5002'; // Valor por defecto (se actualizará automáticamente)
 
 // Crear cliente axios (se actualizará cuando se detecte la IP)
 const apiClient = axios.create({
@@ -261,7 +268,7 @@ apiClient.interceptors.response.use(
         console.warn('🔧 Asegúrate de que:');
         console.warn('   1. El backend esté ejecutándose (dotnet run)');
         console.warn('   2. Tu dispositivo y PC estén en la misma red WiFi');
-        console.warn('   3. El firewall permita conexiones al puerto 3000');
+        console.warn('   3. El firewall permita conexiones al puerto 5002');
         lastWarningTime = now;
       }
       // Fallback a datos simulados si el backend no está disponible

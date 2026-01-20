@@ -238,20 +238,38 @@ var connectionString = Task.Run(async () => await secretsService.GetSecretAsync(
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string no configurado. Configure la variable de entorno CONNECTION_STRING o el valor en appsettings.json");
 
-// Para SQL Server (producción y desarrollo con SSMS)
-// Configuración optimizada para producción con connection pooling
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+// Detectar tipo de base de datos basándose en el connection string
+if (connectionString.Contains("Data Source=") && !connectionString.Contains("Server="))
 {
-    options.UseSqlServer(connectionString, sqlOptions =>
+    // SQLite (desarrollo sin servidor)
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
     {
-        // Habilitar retry logic para resiliencia
-        sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 3,
-            maxRetryDelay: TimeSpan.FromSeconds(5),
-            errorNumbersToAdd: null);
+        options.UseSqlite(connectionString);
         
-        // Configuración de comandos
-        sqlOptions.CommandTimeout(30); // 30 segundos timeout por defecto
+        if (builder.Environment.IsDevelopment())
+        {
+            options.EnableSensitiveDataLogging();
+            options.EnableDetailedErrors();
+        }
+    });
+}
+else
+{
+    // SQL Server (producción y desarrollo con SSMS)
+    // Configuración optimizada para producción con connection pooling
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    {
+        options.UseSqlServer(connectionString, sqlOptions =>
+        {
+            // Habilitar retry logic para resiliencia
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null);
+            
+            // Configuración de comandos
+            sqlOptions.CommandTimeout(30); // 30 segundos timeout por defecto
+        });
         
         // Habilitar sensitive data logging solo en desarrollo
         if (builder.Environment.IsDevelopment())
@@ -259,20 +277,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
             options.EnableSensitiveDataLogging();
             options.EnableDetailedErrors();
         }
+        
+        // Configuración de query tracking
+        // Nota: Se recomienda usar AsNoTracking() explícitamente en consultas de solo lectura
+        // para mejorar el rendimiento y reducir el uso de memoria y conexiones
+        options.UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll);
+        
+        // Nota: Lazy loading está deshabilitado por defecto (mejor performance, más explícito)
+        // Usar Include() explícitamente cuando se necesiten datos relacionados
     });
-    
-    // Configuración de query tracking
-    // Nota: Se recomienda usar AsNoTracking() explícitamente en consultas de solo lectura
-    // para mejorar el rendimiento y reducir el uso de memoria y conexiones
-    options.UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll);
-    
-    // Nota: Lazy loading está deshabilitado por defecto (mejor performance, más explícito)
-    // Usar Include() explícitamente cuando se necesiten datos relacionados
-});
-
-// Para SQLite (desarrollo sin servidor)
-// builder.Services.AddDbContext<ApplicationDbContext>(options =>
-//     options.UseSqlite(connectionString));
+}
 
 // Configurar CORS con optimizaciones
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
@@ -906,90 +920,92 @@ if (app.Environment.IsDevelopment())
             {
                 Log.Warning(ex, "Advertencia al crear tabla CashRegisters (puede que ya exista)");
             }
-            
-            // Crear admin por defecto si no existe o actualizar contraseña si existe
-            var existingAdmin = await dbContext.Admins.FirstOrDefaultAsync(a => a.Username.ToLower() == "admin");
-            if (existingAdmin == null)
+
+            // Crear tabla DeliveryCashRegisters si no existe
+            try
             {
-                var admin = new CornerApp.API.Models.Admin
+                if (dbContext.Database.IsSqlServer())
                 {
-                    Username = "admin",
-                    Email = "admin@cornerapp.com",
-                    Name = "Administrador",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("adminadmin123"),
-                    Role = "Admin",
-                    CreatedAt = DateTime.UtcNow
-                };
-                dbContext.Admins.Add(admin);
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Administrador por defecto creado: usuario 'admin', contraseña 'adminadmin123'");
+                    Log.Information("🔍 Verificando tabla DeliveryCashRegisters...");
+                    await dbContext.Database.ExecuteSqlRawAsync(@"
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND type in (N'U'))
+                        BEGIN
+                            CREATE TABLE [dbo].[DeliveryCashRegisters] (
+                                [Id] int IDENTITY(1,1) NOT NULL,
+                                [DeliveryPersonId] int NOT NULL,
+                                [OpenedAt] datetime2 NOT NULL,
+                                [ClosedAt] datetime2 NULL,
+                                [IsOpen] bit NOT NULL,
+                                [InitialAmount] decimal(18,2) NOT NULL DEFAULT 0,
+                                [FinalAmount] decimal(18,2) NULL,
+                                [TotalSales] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalCash] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalPOS] decimal(18,2) NOT NULL DEFAULT 0,
+                                [TotalTransfer] decimal(18,2) NOT NULL DEFAULT 0,
+                                [Notes] nvarchar(1000) NULL,
+                                [CreatedAt] datetime2 NOT NULL,
+                                [UpdatedAt] datetime2 NULL,
+                                CONSTRAINT [PK_DeliveryCashRegisters] PRIMARY KEY ([Id]),
+                                CONSTRAINT [FK_DeliveryCashRegisters_DeliveryPersons_DeliveryPersonId] 
+                                    FOREIGN KEY ([DeliveryPersonId]) 
+                                    REFERENCES [dbo].[DeliveryPersons] ([Id]) 
+                                    ON DELETE NO ACTION
+                            );
+                            
+                            CREATE INDEX [IX_DeliveryCashRegisters_DeliveryPersonId] ON [dbo].[DeliveryCashRegisters] ([DeliveryPersonId]);
+                            CREATE INDEX [IX_DeliveryCashRegisters_IsOpen] ON [dbo].[DeliveryCashRegisters] ([IsOpen]);
+                            CREATE INDEX [IX_DeliveryCashRegisters_OpenedAt] ON [dbo].[DeliveryCashRegisters] ([OpenedAt]);
+                            CREATE INDEX [IX_DeliveryCashRegisters_DeliveryPersonId_IsOpen] ON [dbo].[DeliveryCashRegisters] ([DeliveryPersonId], [IsOpen]);
+                        END
+                    ");
+                    
+                    // Agregar columnas si la tabla ya existe pero no tienen las nuevas columnas
+                    await dbContext.Database.ExecuteSqlRawAsync(@"
+                        IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND type in (N'U'))
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'InitialAmount')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [InitialAmount] decimal(18,2) NOT NULL DEFAULT 0;
+                                PRINT 'Columna InitialAmount agregada';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'FinalAmount')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [FinalAmount] decimal(18,2) NULL;
+                                PRINT 'Columna FinalAmount agregada';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'TotalSales')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [TotalSales] decimal(18,2) NOT NULL DEFAULT 0;
+                                PRINT 'Columna TotalSales agregada';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'TotalCash')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [TotalCash] decimal(18,2) NOT NULL DEFAULT 0;
+                                PRINT 'Columna TotalCash agregada';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'TotalPOS')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [TotalPOS] decimal(18,2) NOT NULL DEFAULT 0;
+                                PRINT 'Columna TotalPOS agregada';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[DeliveryCashRegisters]') AND name = 'TotalTransfer')
+                            BEGIN
+                                ALTER TABLE [dbo].[DeliveryCashRegisters] ADD [TotalTransfer] decimal(18,2) NOT NULL DEFAULT 0;
+                                PRINT 'Columna TotalTransfer agregada';
+                            END
+                        END
+                    ");
+                    
+                    Log.Information("✅ Tabla DeliveryCashRegisters verificada/creada");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                // Actualizar contraseña del usuario admin existente
-                existingAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("adminadmin123");
-                existingAdmin.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Contraseña del administrador 'admin' actualizada a 'adminadmin123'");
+                Log.Warning(ex, "Advertencia al crear tabla DeliveryCashRegisters (puede que ya exista)");
             }
             
-            // Crear usuario berni2384@hotmail.com si no existe
-            var email = "berni2384@hotmail.com";
-            var existingUser = await dbContext.Admins
-                .FirstOrDefaultAsync(a => a.Username.ToLower() == email.ToLower() || a.Email.ToLower() == email.ToLower());
-            if (existingUser == null)
-            {
-                var user = new CornerApp.API.Models.Admin
-                {
-                    Username = email,
-                    Email = email,
-                    Name = "Berni",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("berni1"),
-                    CreatedAt = DateTime.UtcNow
-                };
-                dbContext.Admins.Add(user);
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Usuario creado: {Email}", email);
-            }
-            else
-            {
-                // Actualizar contraseña si el usuario ya existe
-                // CAMBIA "TuNuevaContraseña123" por la contraseña que quieras usar
-                var newPassword = "TuNuevaContraseña123"; // ⚠️ CAMBIA ESTA CONTRASEÑA
-                existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-                existingUser.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Contraseña actualizada para usuario: {Email} a: {Password}", email, newPassword);
-            }
-            
-            // Crear repartidor Diego si no existe
-            var deliveryEmail = "diego@gmail.com";
-            var existingDeliveryPerson = await dbContext.DeliveryPersons
-                .FirstOrDefaultAsync(d => (d.Username != null && d.Username.ToLower() == deliveryEmail.ToLower()) || 
-                                         (d.Email != null && d.Email.ToLower() == deliveryEmail.ToLower()));
-            if (existingDeliveryPerson == null)
-            {
-                var deliveryPerson = new CornerApp.API.Models.DeliveryPerson
-                {
-                    Name = "Diego",
-                    Username = deliveryEmail.ToLower(),
-                    Email = deliveryEmail.ToLower(),
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow
-                };
-                dbContext.DeliveryPersons.Add(deliveryPerson);
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Repartidor creado: {Email} - Usuario: {Username}, Contraseña: admin123", deliveryEmail, deliveryEmail);
-            }
-            else
-            {
-                // Actualizar contraseña si el repartidor ya existe
-                existingDeliveryPerson.PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123");
-                existingDeliveryPerson.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                Log.Information("✅ Contraseña actualizada para repartidor: {Email}", deliveryEmail);
-            }
+            // Los usuarios deben crearse manualmente en la base de datos
+            // No se crean usuarios automáticamente al iniciar la aplicación
         }
         catch (Exception ex)
         {
@@ -1087,6 +1103,36 @@ using (var scope = app.Services.CreateScope())
     {
         // Si la tabla ya existe o hay algún error, loguear el error completo
         Log.Error(ex, "❌ Error al crear tabla SubProducts: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
+    }
+}
+
+// Limpiar espacios en blanco de usernames y emails de repartidores (solo en desarrollo)
+if (app.Environment.IsDevelopment())
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        try
+        {
+            if (dbContext.Database.IsSqlServer())
+            {
+                Log.Information("🧹 Limpiando espacios en blanco de usernames y emails de repartidores...");
+                await dbContext.Database.ExecuteSqlRawAsync(@"
+                    UPDATE DeliveryPersons 
+                    SET Username = LOWER(LTRIM(RTRIM(Username)))
+                    WHERE Username IS NOT NULL;
+                    
+                    UPDATE DeliveryPersons 
+                    SET Email = LOWER(LTRIM(RTRIM(Email)))
+                    WHERE Email IS NOT NULL;
+                ");
+                Log.Information("✅ Usernames y emails de repartidores limpiados exitosamente");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Advertencia al limpiar usernames de repartidores (puede que no haya repartidores)");
+        }
     }
 }
 

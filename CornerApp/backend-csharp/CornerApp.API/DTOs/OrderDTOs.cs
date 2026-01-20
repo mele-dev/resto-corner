@@ -87,6 +87,8 @@ public class OrderItemSubProductRequest
 public class UpdateOrderStatusRequest
 {
     public string Status { get; set; } = string.Empty;
+    public int? DeliveryPersonId { get; set; }
+    public string? Note { get; set; }
 }
 
 /// <summary>

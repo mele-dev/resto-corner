@@ -21,8 +21,8 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, headers = {} } = options;
 
-    // Obtener token del localStorage
-    const token = localStorage.getItem('admin_token');
+    // Obtener token del localStorage (admin o repartidor)
+    const token = localStorage.getItem('admin_token') || localStorage.getItem('delivery_token');
 
     const config: RequestInit = {
       method,
@@ -313,6 +313,39 @@ class ApiClient {
     return this.request(`/admin/api/delivery-persons/${id}`, { method: 'DELETE' });
   }
 
+  // Delivery Person Cash Register (Admin)
+  async getDeliveryPersonCashRegisterStatus(deliveryPersonId: number) {
+    return this.request<{ isOpen: boolean; cashRegister: any }>(`/admin/api/delivery-persons/${deliveryPersonId}/cash-register/status`);
+  }
+
+  async openDeliveryPersonCashRegister(deliveryPersonId: number, initialAmount: number) {
+    return this.request<any>(`/admin/api/delivery-persons/${deliveryPersonId}/cash-register/open`, {
+      method: 'POST',
+      body: { initialAmount },
+    });
+  }
+
+  async closeDeliveryPersonCashRegister(deliveryPersonId: number, notes?: string) {
+    return this.request<{
+      cashRegister: any;
+      movements: any[];
+      summary: {
+        totalOrders: number;
+        totalSales: number;
+        totalCash: number;
+        totalPOS: number;
+        totalTransfer: number;
+      };
+    }>(`/admin/api/delivery-persons/${deliveryPersonId}/cash-register/close`, {
+      method: 'POST',
+      body: { notes },
+    });
+  }
+
+  async getDeliveryPersonOrders(deliveryPersonId: number, includeCompleted: boolean = false) {
+    return this.request<Order[]>(`/admin/api/delivery-persons/${deliveryPersonId}/orders?includeCompleted=${includeCompleted}`);
+  }
+
   // Payment Methods (para pedidos - solo activos)
   async getPaymentMethods() {
     return this.request<PaymentMethod[]>('/api/orders/payment-methods');
@@ -531,6 +564,35 @@ class ApiClient {
     return this.request<any>('/admin/api/cash-register/close', {
       method: 'POST',
       body: { notes },
+    });
+  }
+
+  // Delivery Cash Register (Caja de Repartidor)
+  async getDeliveryCashRegisterStatus() {
+    return this.request<{ isOpen: boolean; cashRegister: any }>('/api/delivery-cash-register/status');
+  }
+
+  async openDeliveryCashRegister() {
+    return this.request<any>('/api/delivery-cash-register/open', {
+      method: 'POST',
+    });
+  }
+
+  async closeDeliveryCashRegister(notes?: string) {
+    return this.request<any>('/api/delivery-cash-register/close', {
+      method: 'POST',
+      body: { notes },
+    });
+  }
+
+  async getDeliveryOrders() {
+    return this.request<Order[]>('/api/delivery-cash-register/orders');
+  }
+
+  async updateDeliveryOrderStatus(orderId: number, status: string, note?: string) {
+    return this.request<Order>(`/api/delivery-cash-register/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: { status, note },
     });
   }
 

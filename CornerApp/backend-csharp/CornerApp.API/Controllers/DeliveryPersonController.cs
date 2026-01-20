@@ -138,14 +138,33 @@ public class DeliveryPersonController : ControllerBase
 
         // EF Core no puede traducir StringComparison.OrdinalIgnoreCase a SQL
         // Usar ToLower() en ambos lados para comparación case-insensitive que EF Core puede traducir
-        var usernameLower = request.Username.ToLower();
-        var matchedPerson = await _context.DeliveryPersons
-            .Where(d => d.Username != null && d.IsActive && d.Username.ToLower() == usernameLower)
-            .FirstOrDefaultAsync();
+        // También usar Trim() para eliminar espacios en blanco del input
+        var usernameLower = request.Username.Trim().ToLower();
+        
+        // Buscar el usuario - cargar y comparar en memoria para manejar espacios correctamente
+        // Esto es necesario porque EF Core no puede traducir Trim() a SQL
+        var allActivePersons = await _context.DeliveryPersons
+            .Where(d => d.Username != null && d.IsActive)
+            .ToListAsync();
+        
+        var matchedPerson = allActivePersons
+            .FirstOrDefault(d => d.Username != null && 
+                                 d.Username.Trim().ToLower() == usernameLower);
 
         if (matchedPerson == null)
         {
-            _logger.LogWarning("Intento de login con usuario no encontrado: {Username}", request.Username);
+            // Log más detallado para debugging
+            var allUsernames = allActivePersons
+                .Select(d => new { d.Username, d.IsActive, d.Id })
+                .ToList();
+            
+            _logger.LogWarning(
+                "Intento de login con usuario no encontrado. Username buscado: '{Username}' (normalizado: '{UsernameLower}'). " +
+                "Usuarios activos existentes: {ExistingUsernames}",
+                request.Username, 
+                usernameLower,
+                string.Join(", ", allUsernames.Select(u => $"Id:{u.Id} User:'{u.Username}' Active:{u.IsActive}"))
+            );
             return Unauthorized(new { error = "Usuario o contraseña incorrectos" });
         }
 

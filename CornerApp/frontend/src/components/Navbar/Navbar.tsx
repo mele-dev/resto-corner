@@ -48,6 +48,7 @@ const navItems: NavItem[] = [
   { path: '/admin/payments', label: 'Pagos', icon: CheckCircle },
   { path: '/admin/kitchen', label: 'Cocina', icon: ChefHat },
   { path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
+  { path: '/admin/repartidores', label: 'Repartidores', icon: Truck },
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   {
     path: '/admin/mas',

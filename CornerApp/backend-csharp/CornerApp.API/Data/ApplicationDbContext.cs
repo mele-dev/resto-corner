@@ -28,6 +28,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Table> Tables { get; set; }
     public DbSet<Space> Spaces { get; set; }
     public DbSet<CashRegister> CashRegisters { get; set; }
+    public DbSet<DeliveryCashRegister> DeliveryCashRegisters { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -338,6 +339,31 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.OpenedAt);
             entity.HasIndex(e => e.ClosedAt);
             entity.HasIndex(e => new { e.IsOpen, e.OpenedAt }); // Índice compuesto para consultas de caja abierta
+        });
+
+        // Configurar DeliveryCashRegister
+        modelBuilder.Entity<DeliveryCashRegister>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.InitialAmount).HasColumnType("decimal(18,2)").IsRequired();
+            entity.Property(e => e.FinalAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalCash).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalPOS).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.TotalTransfer).HasColumnType("decimal(18,2)").HasDefaultValue(0);
+            entity.Property(e => e.Notes).HasMaxLength(1000);
+            
+            // Relación con DeliveryPerson
+            entity.HasOne(e => e.DeliveryPerson)
+                  .WithMany()
+                  .HasForeignKey(e => e.DeliveryPersonId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            
+            // Índices para optimizar consultas
+            entity.HasIndex(e => e.DeliveryPersonId);
+            entity.HasIndex(e => e.IsOpen);
+            entity.HasIndex(e => e.OpenedAt);
+            entity.HasIndex(e => new { e.DeliveryPersonId, e.IsOpen }); // Índice compuesto para consultas de caja abierta por repartidor
         });
     }
 }

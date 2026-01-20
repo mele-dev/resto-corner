@@ -21,6 +21,8 @@ import PaymentVerificationPage from './pages/PaymentVerification';
 import TablesPage from './pages/Tables';
 import TablesViewPage from './pages/TablesView';
 import AdminUsersPage from './pages/AdminUsers';
+import DeliveryOrdersPage from './pages/DeliveryOrders';
+import DeliveryPersonsManagementPage from './pages/DeliveryPersonsManagement';
 
 export default function App() {
   return (
@@ -42,10 +44,12 @@ export default function App() {
         <Route path="/admin/kitchen" element={<KitchenPage />} />
         <Route path="/admin/mesas-ver" element={<TablesViewPage />} />
         <Route path="/admin/tables" element={<TablesPage />} />
+        <Route path="/admin/repartidores" element={<DeliveryPersonsManagementPage />} />
         <Route path="/admin/orders" element={<OrdersPage />} />
         <Route path="/admin/products" element={<ProductsPage />} />
         <Route path="/admin/categories" element={<CategoriesPage />} />
         <Route path="/admin/delivery-persons" element={<DeliveryPersonsPage />} />
+        <Route path="/delivery/orders" element={<DeliveryOrdersPage />} />
         <Route path="/admin/customers" element={<CustomersPage />} />
         <Route path="/admin/users" element={<AdminUsersPage />} />
         <Route path="/admin/reports" element={<ReportsPage />} />

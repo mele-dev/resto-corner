@@ -188,29 +188,29 @@ const getBaseUrl = async () => {
     if (Platform.OS === 'android' && Platform.isTV === false) {
       // Para emulador Android, usa 10.0.2.2
       // Para Expo Go en dispositivo Android físico, detecta la IP automáticamente
-      // return 'http://10.0.2.2:5000'; // Descomenta para emulador
+      // return 'http://10.0.2.2:5002'; // Descomenta para emulador
       const ip = await getLocalIP();
-      return `http://${ip}:5000`;
+      return `http://${ip}:5002`;
     }
     
     // iOS Simulator o Expo Go iOS
     if (Platform.OS === 'ios') {
       // Para iOS Simulator, localhost funciona
       // Para Expo Go en dispositivo iOS físico, detecta la IP automáticamente
-      // return 'http://localhost:5000'; // Descomenta para simulador
+      // return 'http://localhost:5002'; // Descomenta para simulador
       const ip = await getLocalIP();
-      return `http://${ip}:5000`;
+      return `http://${ip}:5002`;
     }
     
     // Fallback: Detectar IP automáticamente
     const ip = await getLocalIP();
-    return `http://${ip}:5000`;
+    return `http://${ip}:5002`;
   }
   return 'https://tu-backend.com'; // Producción
 };
 
 // Inicializar API_BASE_URL de forma asíncrona
-let API_BASE_URL = 'http://192.168.1.36:5000'; // Valor por defecto
+let API_BASE_URL = 'http://192.168.1.36:5002'; // Valor por defecto
 
 // Crear cliente axios (se actualizará cuando se detecte la IP)
 const apiClient = axios.create({

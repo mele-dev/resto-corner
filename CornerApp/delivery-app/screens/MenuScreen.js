@@ -91,7 +91,7 @@ const MenuScreen = ({ showToast }) => {
     // Si es una URL relativa, convertirla a absoluta
     // Usar la misma IP que api.js (se puede mejorar para detectar automáticamente)
     const API_BASE_URL = __DEV__ 
-      ? 'http://192.168.1.7:5000' // Cambia esta IP por la de tu servidor local
+      ? 'http://192.168.1.7:5002' // Cambia esta IP por la de tu servidor local
       : 'https://tu-backend.com';
     const relativePath = icon.startsWith('/') ? icon : `/${icon}`;
     return `${API_BASE_URL}${relativePath}`;

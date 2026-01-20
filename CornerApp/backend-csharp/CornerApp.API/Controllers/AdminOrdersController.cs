@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Data;
@@ -1035,13 +1035,6 @@ public class AdminOrdersController : ControllerBase
 
         return Ok(history);
     }
-}
-
-public class UpdateOrderStatusRequest
-{
-    public string Status { get; set; } = string.Empty;
-    public int? DeliveryPersonId { get; set; }
-    public string? Note { get; set; }
 }
 
 public class VerifyReceiptRequest
