@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast/ToastContext';
 import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck } from 'lucide-react';
-import logo from '../logo.png';
+import Logo from '../components/Logo/Logo';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -40,11 +40,7 @@ export default function LoginPage() {
       <div className="absolute inset-0 bg-gradient-to-br from-[rgba(5,8,46,1)] via-[rgba(15,25,80,1)] to-[rgba(5,8,46,1)] z-0">
         {/* Logo de fondo izquierdo - Grande y detrás de todo */}
         <div className="absolute inset-0 lg:w-1/2 flex items-center justify-center">
-          <img 
-            src={logo} 
-            alt="CornerApp" 
-            className="w-[800px] h-auto max-w-none opacity-25"
-          />
+          <Logo showText={false} height={400} className="opacity-25" />
         </div>
       </div>
 
@@ -84,17 +80,13 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center bg-transparent relative z-20 rounded-[8rem] lg:rounded-l-[8rem] lg:rounded-r-none m-4 lg:m-0 lg:ml-0">
         {/* Logo de fondo - Grande y detrás de todo */}
         <div className="absolute inset-0 flex items-center justify-center z-0 bg-gray-600 rounded-[8rem] lg:rounded-l-[8rem] lg:rounded-r-none shadow-[0px_0px_0px_0px_rgba(0,0,0,0)] overflow-hidden">
-          <img 
-            src={logo} 
-            alt="CornerApp" 
-            className="w-[800px] h-auto max-w-full max-h-full opacity-10 object-contain"
-          />
+          <Logo showText={false} height={400} className="opacity-10" />
         </div>
         
         <div className="w-full max-w-md relative z-10 p-6">
           {/* Logo móvil */}
           <div className="lg:hidden flex justify-center mb-8">
-            <img src={logo} alt="CornerApp" className="h-16 w-auto" />
+            <Logo showText={true} height={64} />
           </div>
 
           {/* Título */}
@@ -171,7 +163,7 @@ export default function LoginPage() {
           {/* Footer */}
           <div className="mt-8 pt-6 border-t border-gray-200">
             <p className="text-center text-sm text-gray-500" style={{ color: 'var(--tw-ring-offset-color)' }}>
-              Sistema de gestión CornerApp
+              Sistema de gestión RiDi Express
             </p>
           </div>
         </div>

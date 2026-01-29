@@ -816,8 +816,284 @@ export default function TablesViewPage() {
   };
 
   const handleReimprimirFactura = () => {
-    // TODO: Implementar lógica de reimpresión de factura
-    showToast('Funcionalidad de reimpresión de factura en desarrollo', 'info');
+    if (!tableForPayment || tableOrders.length === 0) {
+      showToast('No hay pedidos para imprimir', 'error');
+      return;
+    }
+
+    // Crear una ventana nueva para la factura
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      showToast('Por favor, permite las ventanas emergentes para imprimir la factura', 'error');
+      return;
+    }
+
+    // Obtener el HTML de la factura
+    const invoiceHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Factura - Mesa ${tableForPayment.number}</title>
+          <meta charset="UTF-8">
+          <style>
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              padding: 40px;
+              background: white;
+            }
+            .invoice-container {
+              max-width: 600px;
+              margin: 0 auto;
+              background: white;
+            }
+            .logo {
+              text-align: center;
+              margin-bottom: 30px;
+            }
+            .logo-text {
+              font-size: 28px;
+              font-weight: bold;
+            }
+            .logo-ridi {
+              color: #D97706;
+            }
+            .logo-express {
+              color: #9CA3AF;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+              padding-bottom: 20px;
+              border-bottom: 2px solid #333;
+            }
+            .header h1 {
+              font-size: 24px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 10px;
+            }
+            .header p {
+              font-size: 12px;
+              color: #666;
+              margin: 2px 0;
+            }
+            .orders-section {
+              margin-bottom: 30px;
+            }
+            .orders-section h2 {
+              font-size: 18px;
+              font-weight: 600;
+              color: #333;
+              margin-bottom: 15px;
+            }
+            .order {
+              border-bottom: 1px solid #ddd;
+              padding-bottom: 15px;
+              margin-bottom: 15px;
+            }
+            .order-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: start;
+              margin-bottom: 10px;
+            }
+            .order-number {
+              font-weight: 600;
+              color: #333;
+            }
+            .order-time {
+              font-size: 11px;
+              color: #666;
+            }
+            .order-total {
+              font-size: 14px;
+              font-weight: 600;
+              color: #333;
+            }
+            .order-items {
+              margin-left: 20px;
+              margin-top: 10px;
+            }
+            .order-item {
+              display: flex;
+              justify-content: space-between;
+              font-size: 13px;
+              margin-bottom: 5px;
+            }
+            .item-name {
+              flex: 1;
+              color: #333;
+            }
+            .item-price {
+              font-weight: 500;
+              color: #333;
+            }
+            .sub-products {
+              margin-left: 20px;
+              font-size: 11px;
+              color: #666;
+            }
+            .item-comments {
+              margin-left: 20px;
+              font-size: 11px;
+              color: #666;
+              font-style: italic;
+            }
+            .totals {
+              border-top: 2px solid #333;
+              padding-top: 20px;
+              margin-bottom: 30px;
+            }
+            .total-row {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 10px;
+            }
+            .total-label {
+              font-size: 16px;
+              font-weight: 600;
+              color: #333;
+            }
+            .total-amount {
+              font-size: 16px;
+              font-weight: 600;
+              color: #333;
+            }
+            .final-total {
+              font-size: 20px;
+              font-weight: bold;
+              color: #000;
+            }
+            .payment-method {
+              border-top: 1px solid #ddd;
+              padding-top: 15px;
+              margin-bottom: 30px;
+            }
+            .payment-method p {
+              font-size: 13px;
+              color: #666;
+            }
+            .payment-method span {
+              font-weight: 600;
+              color: #333;
+            }
+            .footer {
+              text-align: center;
+              font-size: 11px;
+              color: #666;
+              border-top: 1px solid #ddd;
+              padding-top: 15px;
+            }
+            @media print {
+              body {
+                padding: 20px;
+              }
+              .no-print {
+                display: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice-container">
+            <div class="logo">
+              <div class="logo-text">
+                <span class="logo-ridi">RiDi</span>
+                <span class="logo-express"> Express</span>
+              </div>
+            </div>
+            
+            <div class="header">
+              <h1>FACTURA</h1>
+              <p>Fecha: ${new Date().toLocaleDateString('es-ES', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</p>
+              <p>Mesa: #${tableForPayment.number}</p>
+            </div>
+            
+            <div class="orders-section">
+              <h2>Detalle de Pedidos</h2>
+              ${tableOrders.map(order => `
+                <div class="order">
+                  <div class="order-header">
+                    <div>
+                      <div class="order-number">Pedido #${order.id}</div>
+                      <div class="order-time">
+                        ${new Date(order.createdAt).toLocaleString('es-ES', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </div>
+                    <div class="order-total">$${order.total.toFixed(2)}</div>
+                  </div>
+                  <div class="order-items">
+                    ${(order.items || []).map(item => `
+                      <div class="order-item">
+                        <div class="item-name">
+                          ${item.quantity}x ${item.productName}
+                          ${item.subProducts && item.subProducts.length > 0 ? `
+                            <div class="sub-products">
+                              ${item.subProducts.map(sub => `+ ${sub.name} (+$${sub.price.toFixed(2)})`).join('<br>')}
+                            </div>
+                          ` : ''}
+                        </div>
+                        <div class="item-price">$${item.subtotal.toFixed(2)}</div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            
+            <div class="totals">
+              <div class="total-row">
+                <span class="total-label">Subtotal:</span>
+                <span class="total-amount">$${totalAmount.toFixed(2)}</span>
+              </div>
+              <div class="total-row final-total">
+                <span>TOTAL:</span>
+                <span>$${totalAmount.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div class="payment-method">
+              <p><span>Método de Pago:</span> ${paymentMethods.find(m => m.name === selectedPaymentMethod)?.displayName || selectedPaymentMethod}</p>
+            </div>
+            
+            <div class="footer">
+              <p>Gracias por su visita</p>
+              <p style="margin-top: 5px;">RiDi Express</p>
+            </div>
+            
+            <div class="no-print" style="margin-top: 30px; text-align: center;">
+              <button onclick="window.print()" style="padding: 10px 20px; background: #3B82F6; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: 600;">
+                Imprimir
+              </button>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(invoiceHTML);
+    printWindow.document.close();
+    
+    // Esperar a que se cargue el contenido y luego abrir el diálogo de impresión
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    };
   };
 
   const handleIngresarMetodoPago = () => {

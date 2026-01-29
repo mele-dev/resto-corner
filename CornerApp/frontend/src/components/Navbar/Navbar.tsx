@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../api/client';
-import logo from '../../logo.png';
+import Logo from '../Logo/Logo';
 
 interface NavItem {
   path: string;
@@ -143,13 +143,8 @@ export default function Navbar() {
       <div className="px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/admin" className="flex items-center gap-3">
-            <img
-              src={logo}
-              alt="CornerApp"
-              className="h-10 w-auto"
-            />
-            <span className="text-xl font-bold text-gray-800">CornerApp</span>
+          <Link to="/admin">
+            <Logo variant="text-only" />
           </Link>
 
           {/* Navigation Links */}
