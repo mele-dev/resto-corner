@@ -11,7 +11,7 @@ public class CreateOrderRequest
     [StringLength(200, MinimumLength = 2, ErrorMessage = "El nombre debe tener entre 2 y 200 caracteres")]
     public string CustomerName { get; set; } = string.Empty;
     
-    [StringLength(20, MinimumLength = 8, ErrorMessage = "El teléfono debe tener entre 8 y 20 caracteres")]
+    [StringLength(20, MinimumLength = 8, ErrorMessage = "El telefono debe tener entre 8 y 20 caracteres")]
     [RegularExpression(@"^[\d\s\-\+\(\)]+$", ErrorMessage = "El formato del teléfono no es válido")]
     public string? CustomerPhone { get; set; }
     

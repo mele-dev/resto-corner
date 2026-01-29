@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useOrdersHub } from '../hooks/useOrdersHub';
 import Modal from '../components/Modal/Modal';
+// OrderStatus no se usa directamente, solo en tipos
 import type { Table, TableStatus, Space, Product, PaymentMethod, Order, Category, SubProduct } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
@@ -30,7 +32,8 @@ export default function TablesViewPage() {
   const [statusFilter, setStatusFilter] = useState<TableStatus | ''>('');
   const [spaceFilter, setSpaceFilter] = useState<number | ''>('');
   const [viewMode, setViewMode] = useState<'grid' | 'floor'>('floor');
-  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+  // selectedTable y setSelectedTable no se utilizan actualmente - comentado para optimización
+  // const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   
   // Table consumption modal state
   const [isTableConsumptionModalOpen, setIsTableConsumptionModalOpen] = useState(false);
@@ -54,7 +57,8 @@ export default function TablesViewPage() {
   const [productQuantity, setProductQuantity] = useState(1);
   const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
   const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
-  const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>('cash');
+  // orderPaymentMethod no se utiliza - el método de pago se establece directamente como 'cash' al crear el pedido
+  // const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>('cash');
   const [orderComments, setOrderComments] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
@@ -66,6 +70,11 @@ export default function TablesViewPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [totalAmount, setTotalAmount] = useState(0);
   const [paymentProcessed, setPaymentProcessed] = useState(false);
+  
+  // Estado para almacenar los tiempos de demora de cada mesa
+  const [tableDelays, setTableDelays] = useState<Record<number, { delay: string; isUrgent: boolean; createdAt: string }>>({});
+  // Estado para forzar actualización en tiempo real (cada segundo)
+  const [currentTime, setCurrentTime] = useState(Date.now());
 
   const { showToast } = useToast();
 
@@ -79,6 +88,385 @@ export default function TablesViewPage() {
   useEffect(() => {
     loadData();
   }, [statusFilter]);
+
+  // Actualizar tiempos de demora cuando cambian las mesas
+  useEffect(() => {
+    if (tables.length > 0) {
+      updateTableDelays();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables]);
+
+  // Actualizar tiempos de demora periódicamente (cada 10 segundos para obtener nuevos pedidos)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (tables.length > 0) {
+        updateTableDelays();
+      }
+    }, 10000); // Actualizar cada 10 segundos para obtener nuevos pedidos
+    
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables]);
+
+  // Actualizar el tiempo actual cada segundo para mostrar demora en tiempo real
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000); // Actualizar cada segundo
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Handler para cuando se actualiza un pedido (SignalR)
+  const handleOrderUpdated = useCallback(async (order: Order) => {
+    console.log('🔄 TablesView: handleOrderUpdated llamado', {
+      orderId: order.id,
+      tableId: order.tableId,
+      status: order.status,
+      isArchived: order.isArchived,
+      modalAbierto: isTableConsumptionModalOpen,
+      mesaModal: tableForConsumption?.id
+    });
+    
+    // Si el modal de consumo está abierto y el pedido pertenece a esa mesa, SIEMPRE recargar
+    // Especialmente importante cuando el estado es "delivered" o "completed"
+    // También recargar si el pedido entregado/completado pertenece a cualquier mesa abierta
+    if (isTableConsumptionModalOpen && tableForConsumption && 
+        (order.tableId === tableForConsumption.id || order.status === 'delivered' || order.status === 'completed')) {
+      console.log('🔄 TablesView: Pedido actualizado pertenece a mesa abierta, recargando consumo', {
+        orderId: order.id,
+        tableId: order.tableId,
+        status: order.status,
+        isArchived: order.isArchived,
+        esEntregado: order.status === 'delivered',
+        esCompletado: order.status === 'completed'
+      });
+      
+      // Si el pedido está entregado o completado, esperar más tiempo para que el backend actualice completamente
+      if (order.status === 'delivered' || order.status === 'completed') {
+        console.log('⏳ TablesView: Esperando 1 segundo antes de recargar pedido completado...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      try {
+        // Intentar múltiples veces si es un pedido entregado/completado para asegurar que se obtenga
+        let orders: Order[] = [];
+        let attempts = 0;
+        const maxAttempts = (order.status === 'delivered' || order.status === 'completed') ? 3 : 1;
+        
+        while (attempts < maxAttempts) {
+          attempts++;
+          console.log(`📡 TablesView: Intento ${attempts}/${maxAttempts} - Llamando a getOrdersByTable para mesa`, tableForConsumption.id);
+          orders = await api.getOrdersByTable(tableForConsumption.id);
+          
+          // Verificar si el pedido entregado/completado está en la respuesta
+          const deliveredOrder = orders.find(o => o.id === order.id && (o.status === 'delivered' || o.status === 'completed'));
+          if (deliveredOrder || (order.status !== 'delivered' && order.status !== 'completed')) {
+            console.log('✅ TablesView: Pedido encontrado en intento', attempts);
+            break;
+          }
+          
+          if (attempts < maxAttempts) {
+            console.log(`⏳ TablesView: Pedido completado no encontrado, esperando 500ms antes de reintentar...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        console.log('🔄 TablesView: Pedidos recargados después de actualización:', orders.map(o => ({
+          id: o.id,
+          status: o.status,
+          isArchived: o.isArchived,
+          tableId: o.tableId
+        })));
+        console.log('🔄 TablesView: Total de pedidos encontrados:', orders.length);
+        console.log('🔄 TablesView: Pedidos completados encontrados:', orders.filter(o => o.status === 'completed').length);
+        
+        const foundOrder = orders.find(o => o.id === order.id);
+        console.log('🔄 TablesView: Pedido específico buscado (ID:', order.id, '):', foundOrder);
+        
+        // CRÍTICO: Si el pedido entregado/completado no está en la respuesta pero sabemos que existe, agregarlo manualmente
+        // Esto es esencial para que el pedido no desaparezca de la mesa
+        if ((order.status === 'delivered' || order.status === 'completed') && !foundOrder) {
+          console.warn('⚠️ TablesView: ⚠️⚠️⚠️ PEDIDO ENTREGADO/COMPLETADO NO ENCONTRADO EN LA RESPUESTA ⚠️⚠️⚠️');
+          console.warn('⚠️ TablesView: Intentando obtenerlo directamente del servidor...');
+          try {
+            const singleOrder = await api.getOrder(order.id);
+            console.log('📦 TablesView: Pedido obtenido directamente:', {
+              id: singleOrder.id,
+              status: singleOrder.status,
+              tableId: singleOrder.tableId,
+              isArchived: singleOrder.isArchived,
+              mesaEsperada: tableForConsumption.id
+            });
+            
+            if (singleOrder && 
+                singleOrder.tableId === tableForConsumption.id && 
+                !singleOrder.isArchived && 
+                (singleOrder.status === 'delivered' || singleOrder.status === 'completed')) {
+              console.log('✅ TablesView: Pedido completado válido, agregándolo a la lista');
+              // Agregar el pedido al inicio de la lista para que sea visible
+              orders.unshift(singleOrder);
+            } else {
+              console.error('❌ TablesView: Pedido obtenido pero no es válido para esta mesa:', {
+                tableIdMatch: singleOrder?.tableId === tableForConsumption.id,
+                isArchived: singleOrder?.isArchived,
+                status: singleOrder?.status
+              });
+            }
+          } catch (error) {
+            console.error('❌ TablesView: Error crítico al obtener pedido directamente:', error);
+            // Si falla, intentar recargar toda la lista una vez más
+            try {
+              console.log('🔄 TablesView: Reintentando obtener todos los pedidos de la mesa...');
+              const retryOrders = await api.getOrdersByTable(tableForConsumption.id);
+              if (retryOrders.find(o => o.id === order.id && o.status === 'completed')) {
+                console.log('✅ TablesView: Pedido encontrado en el segundo intento');
+                orders = retryOrders;
+              }
+            } catch (retryError) {
+              console.error('❌ TablesView: Error en el segundo intento:', retryError);
+            }
+          }
+        }
+        
+        // Asegurar que no haya duplicados
+        const uniqueOrders = orders.filter((orderItem, index, self) => 
+          index === self.findIndex(o => o.id === orderItem.id)
+        );
+        
+        // VERIFICACIÓN FINAL CRÍTICA: Si el pedido entregado/completado aún no está, forzar su inclusión
+        if (order.status === 'delivered' || order.status === 'completed') {
+          const finalCheck = uniqueOrders.find(o => o.id === order.id);
+          if (!finalCheck) {
+            console.error('🚨🚨🚨 CRÍTICO: Pedido completado AÚN NO está en la lista después de todos los intentos');
+            console.error('🚨 Forzando obtención directa del pedido...');
+            try {
+              const forcedOrder = await api.getOrder(order.id);
+              if (forcedOrder && forcedOrder.tableId === tableForConsumption.id && !forcedOrder.isArchived) {
+                console.log('✅ Pedido forzado obtenido, agregándolo a la lista');
+                uniqueOrders.unshift(forcedOrder);
+              }
+            } catch (forceError) {
+              console.error('❌ Error crítico al forzar obtención del pedido:', forceError);
+            }
+          } else {
+            console.log('✅ Verificación final: Pedido completado SÍ está en la lista');
+          }
+        }
+        
+        setTableConsumptionOrders(uniqueOrders);
+        console.log('✅ TablesView: Estado actualizado con', uniqueOrders.length, 'pedidos únicos');
+        console.log('✅ TablesView: Pedidos completados en estado final:', uniqueOrders.filter(o => o.status === 'completed').length);
+      } catch (error) {
+        console.error('❌ Error al recargar consumo después de actualización:', error);
+      }
+    }
+    
+    // Recargar datos de mesas para actualizar estados
+    await loadData();
+  }, [isTableConsumptionModalOpen, tableForConsumption]);
+
+  // Handler para cuando cambia el estado de un pedido (SignalR)
+  const handleOrderStatusChanged = useCallback(async (event: { orderId: number; status: string }) => {
+    console.log('🔄 TablesView: handleOrderStatusChanged llamado', {
+      orderId: event.orderId,
+      newStatus: event.status,
+      modalAbierto: isTableConsumptionModalOpen,
+      mesaModal: tableForConsumption?.id
+    });
+    
+    // CRÍTICO: Si un pedido se entregó o completó, SIEMPRE recargar TODAS las mesas abiertas
+    // Esto es esencial para que el pedido no desaparezca
+    if (event.status === 'delivered' || event.status === 'completed') {
+      console.log('🚨🚨🚨 TablesView: PEDIDO ENTREGADO/COMPLETADO DETECTADO - Recargando todas las mesas abiertas');
+      
+      // PRIMERO: Obtener el pedido directamente para verificar a qué mesa pertenece
+      let completedOrderData: Order | null = null;
+      let completedOrderTableId: number | null = null;
+      try {
+        completedOrderData = await api.getOrder(event.orderId);
+        completedOrderTableId = completedOrderData?.tableId || null;
+        console.log('🔍 TablesView: Pedido completado obtenido directamente:', {
+          orderId: event.orderId,
+          tableId: completedOrderTableId,
+          status: completedOrderData?.status,
+          isArchived: completedOrderData?.isArchived
+        });
+      } catch (error) {
+        console.error('❌ TablesView: Error al obtener pedido completado directamente:', error);
+      }
+      
+      // Si hay un modal abierto Y el pedido pertenece a esa mesa, recargar esa mesa específica
+      // También recargar si no sabemos a qué mesa pertenece (por si acaso)
+      if (isTableConsumptionModalOpen && tableForConsumption && 
+          (completedOrderTableId === tableForConsumption.id || !completedOrderTableId)) {
+      console.log('🔄 TablesView: Estado de pedido cambiado, recargando consumo de mesa', {
+        orderId: event.orderId,
+        newStatus: event.status,
+        tableId: tableForConsumption.id,
+        esCompletado: event.status === 'completed'
+      });
+      
+      // Si el estado cambió a "delivered" o "completed", esperar más tiempo para que el backend actualice completamente
+      if (event.status === 'delivered' || event.status === 'completed') {
+        console.log('⏳ TablesView: Esperando 1 segundo antes de recargar pedidos entregados/completados...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      try {
+        // Recargar siempre los pedidos de la mesa cuando cambia el estado
+        // Esto asegura que los pedidos entregados/completados sigan apareciendo
+        // Intentar múltiples veces si es un pedido entregado/completado para asegurar que se obtenga
+        let orders: Order[] = [];
+        let attempts = 0;
+        const maxAttempts = (event.status === 'delivered' || event.status === 'completed') ? 3 : 1;
+        
+        while (attempts < maxAttempts) {
+          attempts++;
+          console.log(`📡 TablesView: Intento ${attempts}/${maxAttempts} - Llamando a getOrdersByTable para mesa`, tableForConsumption.id);
+          orders = await api.getOrdersByTable(tableForConsumption.id);
+          
+          // Verificar si el pedido entregado/completado está en la respuesta
+          const deliveredOrder = orders.find(o => o.id === event.orderId && (o.status === 'delivered' || o.status === 'completed'));
+          if (deliveredOrder || (event.status !== 'delivered' && event.status !== 'completed')) {
+            console.log('✅ TablesView: Pedido encontrado en intento', attempts);
+            break;
+          }
+          
+          if (attempts < maxAttempts) {
+            console.log(`⏳ TablesView: Pedido completado no encontrado, esperando 500ms antes de reintentar...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        console.log('🔄 TablesView: Pedidos recargados después de cambio de estado:', orders.map(o => ({
+          id: o.id,
+          status: o.status,
+          isArchived: o.isArchived,
+          tableId: o.tableId
+        })));
+        console.log('🔄 TablesView: Total de pedidos encontrados:', orders.length);
+        console.log('🔄 TablesView: Pedidos completados encontrados:', orders.filter(o => o.status === 'completed').length);
+        
+        const foundOrder = orders.find(o => o.id === event.orderId);
+        console.log('🔄 TablesView: Pedido específico buscado (ID:', event.orderId, '):', foundOrder);
+        
+        // CRÍTICO: Si el pedido completado no está en la respuesta pero sabemos que existe, agregarlo manualmente
+        // Esto es esencial para que el pedido no desaparezca de la mesa
+        if (event.status === 'completed' && !foundOrder) {
+          console.warn('⚠️ TablesView: ⚠️⚠️⚠️ PEDIDO COMPLETADO NO ENCONTRADO EN LA RESPUESTA ⚠️⚠️⚠️');
+          console.warn('⚠️ TablesView: Intentando obtenerlo directamente del servidor...');
+          try {
+            const singleOrder = await api.getOrder(event.orderId);
+            console.log('📦 TablesView: Pedido obtenido directamente:', {
+              id: singleOrder.id,
+              status: singleOrder.status,
+              tableId: singleOrder.tableId,
+              isArchived: singleOrder.isArchived,
+              mesaEsperada: tableForConsumption.id
+            });
+            
+            if (singleOrder && 
+                singleOrder.tableId === tableForConsumption.id && 
+                !singleOrder.isArchived && 
+                singleOrder.status === 'completed') {
+              console.log('✅ TablesView: Pedido completado válido, agregándolo a la lista');
+              // Agregar el pedido al inicio de la lista para que sea visible
+              orders.unshift(singleOrder);
+            } else {
+              console.error('❌ TablesView: Pedido obtenido pero no es válido para esta mesa:', {
+                tableIdMatch: singleOrder?.tableId === tableForConsumption.id,
+                isArchived: singleOrder?.isArchived,
+                status: singleOrder?.status
+              });
+            }
+          } catch (error) {
+            console.error('❌ TablesView: Error crítico al obtener pedido directamente:', error);
+            // Si falla, intentar recargar toda la lista una vez más
+            try {
+              console.log('🔄 TablesView: Reintentando obtener todos los pedidos de la mesa...');
+              const retryOrders = await api.getOrdersByTable(tableForConsumption.id);
+              if (retryOrders.find(o => o.id === event.orderId && (o.status === 'delivered' || o.status === 'completed'))) {
+                console.log('✅ TablesView: Pedido encontrado en el segundo intento');
+                orders = retryOrders;
+              }
+            } catch (retryError) {
+              console.error('❌ TablesView: Error en el segundo intento:', retryError);
+            }
+          }
+        }
+        
+        // Asegurar que no haya duplicados
+        const uniqueOrders = orders.filter((orderItem, index, self) => 
+          index === self.findIndex(o => o.id === orderItem.id)
+        );
+        
+        // VERIFICACIÓN FINAL CRÍTICA: Si el pedido entregado/completado aún no está, forzar su inclusión
+        // Usar el pedido que ya obtuvimos al inicio si está disponible
+        if (event.status === 'delivered' || event.status === 'completed') {
+          const finalCheck = uniqueOrders.find(o => o.id === event.orderId);
+          if (!finalCheck) {
+            console.error('🚨🚨🚨 CRÍTICO: Pedido entregado/completado AÚN NO está en la lista después de todos los intentos');
+            console.error('🚨 Forzando inclusión del pedido...');
+            
+            // Usar el pedido que ya obtuvimos al inicio si está disponible y es válido
+            if (completedOrderData && 
+                completedOrderData.tableId === tableForConsumption.id && 
+                !completedOrderData.isArchived &&
+                (completedOrderData.status === 'delivered' || completedOrderData.status === 'completed')) {
+              console.log('✅ Usando pedido obtenido al inicio, agregándolo a la lista');
+              uniqueOrders.unshift(completedOrderData);
+            } else {
+              // Si no tenemos el pedido, intentar obtenerlo de nuevo
+              try {
+                const forcedOrder = await api.getOrder(event.orderId);
+                if (forcedOrder && forcedOrder.tableId === tableForConsumption.id && !forcedOrder.isArchived) {
+                  console.log('✅ Pedido forzado obtenido, agregándolo a la lista');
+                  uniqueOrders.unshift(forcedOrder);
+                }
+              } catch (forceError) {
+                console.error('❌ Error crítico al forzar obtención del pedido:', forceError);
+              }
+            }
+          } else {
+            console.log('✅ Verificación final: Pedido completado SÍ está en la lista');
+          }
+        }
+        
+        setTableConsumptionOrders(uniqueOrders);
+        console.log('✅ TablesView: Estado actualizado con', uniqueOrders.length, 'pedidos únicos');
+        console.log('✅ TablesView: Pedidos completados en estado final:', uniqueOrders.filter(o => o.status === 'completed').length);
+      } catch (error) {
+        console.error('❌ Error al recargar consumo después de cambio de estado:', error);
+      }
+      }
+    }
+    
+    // Recargar datos de mesas para actualizar estados
+    await loadData();
+  }, [isTableConsumptionModalOpen, tableForConsumption]);
+
+  // Handler para cuando se elimina un pedido (SignalR)
+  const handleOrderDeleted = useCallback(async (_event: { orderId: number }) => {
+    // Si el modal está abierto, recargar siempre para asegurar consistencia
+    // Nota: event.orderId no se usa, pero se mantiene la firma para compatibilidad con SignalR
+    if (isTableConsumptionModalOpen && tableForConsumption) {
+      try {
+        const orders = await api.getOrdersByTable(tableForConsumption.id);
+        setTableConsumptionOrders(orders);
+      } catch (error) {
+        console.error('Error al recargar consumo después de eliminación:', error);
+      }
+    }
+    await loadData();
+  }, [isTableConsumptionModalOpen, tableForConsumption]);
+
+  // Conectar al hub de SignalR para recibir actualizaciones en tiempo real
+  useOrdersHub({
+    onOrderCreated: handleOrderUpdated,
+    onOrderUpdated: handleOrderUpdated,
+    onOrderStatusChanged: handleOrderStatusChanged,
+    onOrderDeleted: handleOrderDeleted,
+  });
 
   const loadProducts = async () => {
     try {
@@ -161,6 +549,101 @@ export default function TablesViewPage() {
     }
   };
 
+  // Función para calcular el tiempo de demora de los pedidos de una mesa
+  // Calcula desde que se creó el pedido (createdAt)
+  const calculateTableDelay = async (tableId: number): Promise<{ delay: string; isUrgent: boolean; createdAt: string } | null> => {
+    try {
+      const orders = await api.getOrdersByTable(tableId);
+      
+      // Filtrar solo pedidos activos (no cancelados ni archivados)
+      const activeOrders = orders.filter(order => 
+        order.status !== 'cancelled' && !order.isArchived
+      );
+      
+      if (activeOrders.length === 0) {
+        return null;
+      }
+      
+      // Encontrar el pedido más antiguo (el que se creó primero)
+      let oldestOrder = activeOrders[0];
+      let oldestTime = new Date(activeOrders[0].createdAt).getTime();
+      
+      for (const order of activeOrders) {
+        const orderTime = new Date(order.createdAt).getTime();
+        if (orderTime < oldestTime) {
+          oldestTime = orderTime;
+          oldestOrder = order;
+        }
+      }
+      
+      // Calcular la demora desde que se creó el pedido más antiguo
+      const delayMs = Date.now() - oldestTime;
+      
+      if (delayMs <= 0) {
+        return null;
+      }
+      
+      const delayMins = Math.floor(delayMs / 60000);
+      const delayHours = Math.floor(delayMins / 60);
+      
+      let delayText: string;
+      if (delayHours > 0) {
+        delayText = `${delayHours}h ${delayMins % 60}m`;
+      } else {
+        delayText = `${delayMins}m`;
+      }
+      
+      // Considerar urgente si lleva más de 20 minutos
+      const isUrgent = delayMins > 20;
+      
+      return { delay: delayText, isUrgent, createdAt: oldestOrder.createdAt };
+    } catch (error) {
+      console.error(`Error al calcular demora para mesa ${tableId}:`, error);
+      return null;
+    }
+  };
+
+  // Función para actualizar los tiempos de demora de todas las mesas
+  const updateTableDelays = async () => {
+    try {
+      const occupiedTables = tables.filter(t => 
+        t.status === 'Occupied' || t.status === 'OrderPlaced'
+      );
+      
+      const delays: Record<number, { delay: string; isUrgent: boolean; createdAt: string }> = {};
+      
+      await Promise.all(
+        occupiedTables.map(async (table) => {
+          const delay = await calculateTableDelay(table.id);
+          if (delay) {
+            delays[table.id] = delay;
+          }
+        })
+      );
+      
+      setTableDelays(delays);
+    } catch (error) {
+      console.error('Error al actualizar tiempos de demora:', error);
+    }
+  };
+
+  // Función para calcular el tiempo de demora en tiempo real desde createdAt
+  const calculateRealTimeDelay = (createdAt: string): { delay: string; isUrgent: boolean } => {
+    const delayMs = currentTime - new Date(createdAt).getTime();
+    const delayMins = Math.floor(delayMs / 60000);
+    const delayHours = Math.floor(delayMins / 60);
+    
+    let delayText: string;
+    if (delayHours > 0) {
+      delayText = `${delayHours}h ${delayMins % 60}m`;
+    } else {
+      delayText = `${delayMins}m`;
+    }
+    
+    const isUrgent = delayMins > 20;
+    return { delay: delayText, isUrgent };
+  };
+
   const filteredTables = tables.filter(table => {
     const matchesSearch = table.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (table.location?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
@@ -193,36 +676,34 @@ export default function TablesViewPage() {
         }
       }
       
-      // Obtener todos los pedidos primero para debug
-      const allOrdersResponse = await api.getOrders({ showArchived: false });
-      console.log('Todos los pedidos (respuesta completa):', allOrdersResponse);
+      // Código de debugging comentado para optimización
+      // const allOrdersResponse = await api.getOrders({ showArchived: false });
+      // console.log('Todos los pedidos (respuesta completa):', allOrdersResponse);
       
-      // Verificar estructura de la respuesta
-      const ordersData = allOrdersResponse?.data || allOrdersResponse || [];
-      console.log('Datos de pedidos extraídos:', ordersData);
-      console.log('Tipo de datos:', Array.isArray(ordersData) ? 'Array' : typeof ordersData);
-      
-      // Filtrar manualmente para debug
-      const tableIdNum = Number(table.id);
-      const matchingOrders = Array.isArray(ordersData) ? ordersData.filter((o: any) => {
-        const orderTableId = o.tableId ? Number(o.tableId) : null;
-        const matches = orderTableId === tableIdNum;
-        // Incluir pedidos activos Y completados (para cobrar), excluir cancelados y archivados
-        const shouldInclude = o.status !== 'cancelled' && !o.isArchived;
-        if (matches || orderTableId) {
-          console.log(`Pedido #${o.id} - tableId: ${orderTableId}, status: ${o.status}, archivado: ${o.isArchived}, matches: ${matches}, incluido: ${shouldInclude}`);
-        }
-        return matches && shouldInclude;
-      }) : [];
-      
-      console.log('Pedidos que coinciden con mesa', table.id, ':', matchingOrders);
+      // Código de debugging comentado para optimización - usar directamente getOrdersByTable
+      // const allOrdersResponse = await api.getOrders({ showArchived: false });
+      // const ordersData = allOrdersResponse?.data || allOrdersResponse || [];
+      // console.log('Datos de pedidos extraídos:', ordersData);
+      // console.log('Tipo de datos:', Array.isArray(ordersData) ? 'Array' : typeof ordersData);
+      // 
+      // const tableIdNum = Number(table.id);
+      // const matchingOrders = Array.isArray(ordersData) ? ordersData.filter((o: any) => {
+      //   const orderTableId = o.tableId ? Number(o.tableId) : null;
+      //   const matches = orderTableId === tableIdNum;
+      //   const shouldInclude = o.status !== 'cancelled' && !o.isArchived;
+      //   if (matches || orderTableId) {
+      //     console.log(`Pedido #${o.id} - tableId: ${orderTableId}, status: ${o.status}, archivado: ${o.isArchived}, matches: ${matches}, incluido: ${shouldInclude}`);
+      //   }
+      //   return matches && shouldInclude;
+      // }) : [];
+      // 
+      // console.log('Pedidos que coinciden con mesa', table.id, ':', matchingOrders);
       
       const orders = await api.getOrdersByTable(table.id);
-      console.log('Pedidos desde getOrdersByTable:', orders);
+      // console.log('Pedidos desde getOrdersByTable:', orders);
       
-      // Si getOrdersByTable no devuelve resultados pero encontramos pedidos manualmente, usar esos
-      const finalOrders = orders.length > 0 ? orders : matchingOrders;
-      console.log('Pedidos finales a mostrar:', finalOrders.length);
+      // Usar directamente los pedidos obtenidos de getOrdersByTable
+      const finalOrders = orders;
       
       setTableConsumptionOrders(finalOrders);
       setIsTableConsumptionModalOpen(true);
@@ -252,7 +733,7 @@ export default function TablesViewPage() {
     setProductQuantity(1);
     setProductSubProducts([]);
     setSelectedSubProducts([]);
-    setOrderPaymentMethod('cash');
+    // orderPaymentMethod siempre es 'cash' por defecto, no necesita reset
     setOrderComments('');
     await loadCategories();
     setIsCreateOrderModalOpen(true);
@@ -718,6 +1199,20 @@ export default function TablesViewPage() {
                                 {getTimeElapsed(table.orderPlacedAt)}
                               </div>
                             )}
+                            {/* Mostrar tiempo de demora si existe (actualizado en tiempo real) */}
+                            {tableDelays[table.id] && (() => {
+                              const realTimeDelay = calculateRealTimeDelay(tableDelays[table.id].createdAt);
+                              return (
+                                <div className={`text-[9px] mt-1 flex items-center justify-center gap-1 ${
+                                  realTimeDelay.isUrgent 
+                                    ? 'text-yellow-300 font-bold animate-pulse' 
+                                    : 'text-white/90'
+                                }`}>
+                                  <Clock size={8} />
+                                  ⏱️ {realTimeDelay.delay}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <button
                             onClick={(e) => {
@@ -823,6 +1318,20 @@ export default function TablesViewPage() {
                           Pedido hace {getTimeElapsed(table.orderPlacedAt)}
                         </p>
                       )}
+                      {/* Mostrar tiempo de demora si existe (actualizado en tiempo real) */}
+                      {tableDelays[table.id] && (() => {
+                        const realTimeDelay = calculateRealTimeDelay(tableDelays[table.id].createdAt);
+                        return (
+                          <p className={`text-xs mt-1 flex items-center gap-1 ${
+                            realTimeDelay.isUrgent 
+                              ? 'text-orange-600 font-bold' 
+                              : 'text-gray-600'
+                          }`}>
+                            <Clock size={12} />
+                            ⏱️ Demora: {realTimeDelay.delay}
+                          </p>
+                        );
+                      })()}
                     </div>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.bgColor} ${statusInfo.color}`}>
                       {statusInfo.label}
@@ -1241,13 +1750,24 @@ export default function TablesViewPage() {
               {!tableConsumptionOrders || tableConsumptionOrders.length === 0 ? (
                 <div className="bg-gray-50 rounded-lg p-8 text-center border-2 border-dashed border-gray-300">
                   <ShoppingCart size={48} className="mx-auto mb-4 text-gray-300" />
-                  <p className="text-gray-500 font-medium">No hay pedidos activos en esta mesa</p>
+                  <p className="text-gray-500 font-medium">No hay pedidos en esta mesa</p>
                   <p className="text-sm text-gray-400 mt-2">Puedes crear un nuevo pedido</p>
                 </div>
               ) : (
                 <div className="bg-white rounded-lg p-4 border-2 border-gray-200 shadow-sm max-h-96 overflow-y-auto">
                   <div className="space-y-4">
-                    {(tableConsumptionOrders || []).map((order) => {
+                    {(() => {
+                      // Log para debugging
+                      const ordersToShow = tableConsumptionOrders || [];
+                      const completedOrders = ordersToShow.filter(o => o.status === 'completed');
+                      console.log('📋 TablesView: Mostrando pedidos en la vista', {
+                        total: ordersToShow.length,
+                        completados: completedOrders.length,
+                        pedidos: ordersToShow.map(o => ({ id: o.id, status: o.status, isArchived: o.isArchived }))
+                      });
+                      return ordersToShow;
+                    })().map((order) => {
+                      const isDelivered = order.status === 'delivered';
                       const isCompleted = order.status === 'completed';
                       const isPreparing = order.status === 'preparing';
                       const isPending = order.status === 'pending';
@@ -1255,15 +1775,20 @@ export default function TablesViewPage() {
                       return (
                         <div 
                           key={order.id} 
-                          className={`border rounded-lg p-3 ${isCompleted ? 'bg-green-50 border-green-200' : isPreparing ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200'}`}
+                          className={`border rounded-lg p-3 ${isDelivered || isCompleted ? 'bg-green-50 border-green-200' : isPreparing ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200'}`}
                         >
                           {/* Header del pedido con estado */}
                           <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-200">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-gray-800">Pedido #{order.id}</span>
-                              {isCompleted && (
+                              {isDelivered && (
                                 <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                                  ✅ Listo
+                                  ✅ Entregado
+                                </span>
+                              )}
+                              {isCompleted && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                                  ✅ Completado
                                 </span>
                               )}
                               {isPreparing && (

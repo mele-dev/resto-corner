@@ -160,45 +160,82 @@ class ApiClient {
   }
 
   async getOrdersByTable(tableId: number) {
-    const ordersResponse = await this.getOrders({ showArchived: false });
-    
-    // Manejar diferentes estructuras de respuesta
-    let ordersArray: Order[] = [];
-    
-    if (Array.isArray(ordersResponse)) {
-      // Si la respuesta es directamente un array
-      ordersArray = ordersResponse;
-    } else if (ordersResponse?.data && Array.isArray(ordersResponse.data)) {
-      // Si la respuesta tiene una propiedad 'data' con el array
-      ordersArray = ordersResponse.data;
-    } else {
-      console.warn('getOrdersByTable: Estructura de respuesta inesperada', ordersResponse);
-      return [];
-    }
-    
-    // Convertir tableId a número para comparación
-    const tableIdNum = Number(tableId);
-    
-    const tableOrders = ordersArray.filter(
-      (order: Order) => {
-        if (!order) return false;
+    try {
+      // Usar el endpoint específico para obtener pedidos de una mesa
+      // Este endpoint incluye pedidos completados pero no archivados
+      console.log(`📡 getOrdersByTable: Llamando a /api/tables/${tableId}/orders`);
+      const orders = await this.request<Order[]>(`/api/tables/${tableId}/orders`);
+      
+      const completedCount = orders.filter(o => o.status === 'completed').length;
+      const pendingCount = orders.filter(o => o.status === 'pending').length;
+      const preparingCount = orders.filter(o => o.status === 'preparing').length;
+      
+      console.log(`✅ getOrdersByTable: Obtenidos ${orders.length} pedidos para mesa ${tableId}`, {
+        total: orders.length,
+        completados: completedCount,
+        pendientes: pendingCount,
+        preparando: preparingCount,
+        pedidos: orders.map(o => ({ id: o.id, status: o.status, isArchived: o.isArchived }))
+      });
+      
+      return orders;
+    } catch (error: any) {
+      // Si el endpoint no existe (404), usar el método anterior como fallback
+      if (error?.response?.status === 404 || error?.response?.status === 401) {
+        console.warn(`⚠️ Endpoint /api/tables/${tableId}/orders no disponible (${error?.response?.status}), usando método alternativo`);
         
-        const orderTableId = order.tableId ? Number(order.tableId) : null;
-        const matchesTable = orderTableId === tableIdNum;
-        // Incluir pedidos activos (pending, preparing, delivering) Y pedidos completados (para cobrar)
-        // Excluir cancelados y archivados (archivados = ya cobrados)
-        const shouldInclude = order.status !== 'cancelled' && !order.isArchived;
+        // Obtener TODOS los pedidos sin paginación para asegurar que incluya los completados
+        console.log(`📡 getOrdersByTable (fallback): Obteniendo todos los pedidos...`);
+        const ordersResponse = await this.getOrders({ 
+          showArchived: false,
+          page: 1,
+          pageSize: 10000 // Tamaño muy grande para obtener todos los pedidos
+        });
         
-        if (matchesTable) {
-          console.log(`Pedido #${order.id} - tableId: ${orderTableId}, status: ${order.status}, archivado: ${order.isArchived}, incluido: ${shouldInclude}`);
+        // Manejar diferentes estructuras de respuesta
+        let ordersArray: Order[] = [];
+        
+        if (Array.isArray(ordersResponse)) {
+          ordersArray = ordersResponse;
+        } else if (ordersResponse?.data && Array.isArray(ordersResponse.data)) {
+          ordersArray = ordersResponse.data;
+        } else {
+          console.warn('❌ getOrdersByTable (fallback): Estructura de respuesta inesperada', ordersResponse);
+          return [];
         }
         
-        return matchesTable && shouldInclude;
+        console.log(`📊 getOrdersByTable (fallback): Obtenidos ${ordersArray.length} pedidos totales del servidor`);
+        
+        // Convertir tableId a número para comparación
+        const tableIdNum = Number(tableId);
+        
+        const tableOrders = ordersArray.filter(
+          (order: Order) => {
+            if (!order) return false;
+            
+            const orderTableId = order.tableId ? Number(order.tableId) : null;
+            const matchesTable = orderTableId === tableIdNum;
+            // Incluir pedidos activos (pending, preparing, delivering) Y pedidos completados (para cobrar)
+            // Excluir SOLO cancelados y archivados (archivados = ya cobrados)
+            const shouldInclude = order.status !== 'cancelled' && !order.isArchived;
+            
+            if (matchesTable) {
+              console.log(`🔍 getOrdersByTable (fallback): Pedido #${order.id} - tableId: ${orderTableId}, status: ${order.status}, archivado: ${order.isArchived}, incluido: ${shouldInclude}`);
+            }
+            
+            return matchesTable && shouldInclude;
+          }
+        );
+        
+        const completedCount = tableOrders.filter(o => o.status === 'completed').length;
+        console.log(`✅ getOrdersByTable (fallback): Encontrados ${tableOrders.length} pedidos para mesa ${tableId} (${completedCount} completados)`);
+        return tableOrders;
       }
-    );
-    
-    console.log(`getOrdersByTable: Encontrados ${tableOrders.length} pedidos para mesa ${tableId} de ${ordersArray.length} totales`);
-    return tableOrders;
+      
+      // Si es otro error, lanzarlo
+      console.error('❌ Error en getOrdersByTable:', error);
+      throw error;
+    }
   }
 
   async deleteOrderItem(orderId: number, itemId: number) {

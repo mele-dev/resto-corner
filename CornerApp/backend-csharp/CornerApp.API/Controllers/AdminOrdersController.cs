@@ -787,6 +787,7 @@ public class AdminOrdersController : ControllerBase
                                 && o.Id != order.Id
                                 && !o.IsArchived 
                                 && o.Status != OrderConstants.STATUS_COMPLETED 
+                                && o.Status != OrderConstants.STATUS_DELIVERED
                                 && o.Status != OrderConstants.STATUS_CANCELLED);
 
                         // Solo actualizar a Available si no hay otros pedidos activos

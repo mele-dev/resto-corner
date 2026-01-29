@@ -28,6 +28,7 @@ const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor:
   pending: { label: 'Pendiente', color: 'text-yellow-600', bgColor: 'bg-yellow-100', icon: Clock },
   preparing: { label: 'Preparando', color: 'text-orange-600', bgColor: 'bg-orange-100', icon: ChefHat },
   delivering: { label: 'En camino', color: 'text-purple-600', bgColor: 'bg-purple-100', icon: Truck },
+  delivered: { label: 'Entregado', color: 'text-green-600', bgColor: 'bg-green-100', icon: CheckCircle },
   completed: { label: 'Completado', color: 'text-green-700', bgColor: 'bg-green-200', icon: CheckCircle },
   cancelled: { label: 'Cancelado', color: 'text-red-600', bgColor: 'bg-red-100', icon: XCircle },
 };
@@ -715,14 +716,14 @@ function KitchenOrderCard({
           {order.status === 'preparing' && (
             <>
               {order.tableId != null ? (
-                // Pedido de salón: completar directamente sin asignar repartidor
+                // Pedido de salón: marcar como entregado a la mesa (listo para cobrar)
                 <button
-                  onClick={() => onStatusChange(order, 'completed')}
+                  onClick={() => onStatusChange(order, 'delivered')}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-base font-bold"
-                  title="Marcar como completado (Salón)"
+                  title="Entregado a la mesa (listo para cobrar)"
                 >
                   <CheckCircle size={20} />
-                  ¡Listo!
+                  Entregado a Mesa
                 </button>
               ) : (
                 // Pedido de delivery: abrir modal para asignar repartidor
@@ -777,11 +778,11 @@ function KitchenTableActions({
       {order.status === 'preparing' && (
         <>
           {order.tableId != null ? (
-            // Pedido de salón: completar directamente sin asignar repartidor
+            // Pedido de salón: marcar como entregado a la mesa (listo para cobrar)
             <button 
-              onClick={() => onStatusChange(order, 'completed')} 
+              onClick={() => onStatusChange(order, 'delivered')} 
               className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" 
-              title="Marcar como completado (Salón)"
+              title="Entregado a la mesa (listo para cobrar)"
             >
               <CheckCircle2 size={16} />
             </button>

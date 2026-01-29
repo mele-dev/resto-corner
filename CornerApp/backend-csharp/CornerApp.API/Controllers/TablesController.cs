@@ -172,6 +172,52 @@ public class TablesController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene los pedidos de una mesa específica (incluye completados pero no archivados)
+    /// </summary>
+    [HttpGet("{id}/orders")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<Order>>> GetTableOrders(int id)
+    {
+        try
+        {
+            var table = await _context.Tables.FindAsync(id);
+            if (table == null)
+            {
+                _logger.LogWarning("Mesa {TableId} no encontrada al obtener pedidos", id);
+                return NotFound(new { error = "Mesa no encontrada" });
+            }
+
+            // Obtener todos los pedidos de la mesa que NO estén archivados
+            // Incluir pedidos completados para poder cobrarlos
+            var orders = await _context.Orders
+                .Include(o => o.Items)
+                .Include(o => o.Table)
+                .Where(o => o.TableId == id && !o.IsArchived && o.Status != OrderConstants.STATUS_CANCELLED)
+                .OrderByDescending(o => o.CreatedAt)
+                .ToListAsync();
+
+            // Log detallado para debugging
+            var completedCount = orders.Count(o => o.Status == OrderConstants.STATUS_COMPLETED);
+            var pendingCount = orders.Count(o => o.Status == OrderConstants.STATUS_PENDING);
+            var preparingCount = orders.Count(o => o.Status == OrderConstants.STATUS_PREPARING);
+            
+            _logger.LogInformation(
+                "Obtenidos {Count} pedidos para mesa {TableId} - {TableNumber}. " +
+                "Completados: {CompletedCount}, Pendientes: {PendingCount}, Preparando: {PreparingCount}. " +
+                "IDs: {OrderIds}",
+                orders.Count, table.Id, table.Number, completedCount, pendingCount, preparingCount,
+                string.Join(", ", orders.Select(o => $"{o.Id}({o.Status})")));
+
+            return Ok(orders);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener pedidos de mesa {TableId}", id);
+            return StatusCode(500, new { error = "Error al obtener pedidos de la mesa", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Obtiene una mesa por ID
     /// </summary>
     [HttpGet("{id}")]

@@ -23,7 +23,7 @@ import {
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useOrdersHub } from '../hooks/useOrdersHub';
-import { useNotificationSound, getTimeElapsed } from '../hooks/useNotificationSound';
+import { useNotificationSound } from '../hooks/useNotificationSound';
 import Modal from '../components/Modal/Modal';
 import Pagination from '../components/Pagination/Pagination';
 import ConfirmModal from '../components/Modal/ConfirmModal';
@@ -33,6 +33,7 @@ const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor:
   pending: { label: 'Pendiente', color: 'text-yellow-600', bgColor: 'bg-yellow-100', icon: Clock },
   preparing: { label: 'Preparando', color: 'text-orange-600', bgColor: 'bg-orange-100', icon: ChefHat },
   delivering: { label: 'En camino', color: 'text-purple-600', bgColor: 'bg-purple-100', icon: Truck },
+  delivered: { label: 'Entregado', color: 'text-green-600', bgColor: 'bg-green-100', icon: CheckCircle },
   completed: { label: 'Completado', color: 'text-green-700', bgColor: 'bg-green-200', icon: CheckCircle },
   cancelled: { label: 'Cancelado', color: 'text-red-600', bgColor: 'bg-red-100', icon: XCircle },
 };
@@ -48,11 +49,22 @@ export default function ActiveOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [isConnected, setIsConnected] = useState(false);
+  // Estado para actualizar el tiempo en tiempo real
+  const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Mantener el ref sincronizado con el estado
   useEffect(() => {
     ordersRef.current = orders;
   }, [orders]);
+
+  // Actualizar el tiempo actual cada segundo para mostrar demora en tiempo real
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000); // Actualizar cada segundo
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const [searchParams] = useSearchParams();
 
@@ -805,6 +817,7 @@ export default function ActiveOrdersPage() {
                           setSelectedOrder(order);
                           setIsDetailsModalOpen(true);
                         }}
+                        currentTime={currentTime}
                       />
                     ))}
                   </div>
@@ -831,7 +844,18 @@ export default function ActiveOrdersPage() {
                   {paginatedOrders.map(order => {
                     const status = statusConfig[order.status];
                     const StatusIcon = status.icon;
-                    const elapsed = getTimeElapsed(order.updatedAt || order.createdAt);
+                    // Calcular tiempo desde que se creó el pedido, actualizado en tiempo real
+                    const orderCreatedTime = new Date(order.createdAt).getTime();
+                    const delayMs = currentTime - orderCreatedTime;
+                    const delayMins = Math.floor(delayMs / 60000);
+                    const delayHours = Math.floor(delayMins / 60);
+                    let delayText: string;
+                    if (delayHours > 0) {
+                      delayText = `${delayHours}h ${delayMins % 60}min`;
+                    } else {
+                      delayText = `${delayMins}min`;
+                    }
+                    const elapsed = { text: delayText, isUrgent: delayMins > 20, minutes: delayMins };
 
                     return (
                       <tr key={order.id} className="hover:bg-gray-50">
@@ -1061,6 +1085,7 @@ export default function ActiveOrdersPage() {
                     className="w-full rounded-lg border border-gray-300 cursor-pointer hover:opacity-90 transition-opacity"
                     onClick={() => {
                       // Abrir imagen en nueva ventana para verla en tamaño completo
+                      if (!selectedOrder.transferReceiptImage) return;
                       const imageUrl = selectedOrder.transferReceiptImage.startsWith('data:') 
                         ? selectedOrder.transferReceiptImage 
                         : `data:image/jpeg;base64,${selectedOrder.transferReceiptImage}`;
@@ -1119,44 +1144,57 @@ function OrderCard({
   onStatusChange,
   onAssign,
   onCancel,
-  onViewDetails
+  onViewDetails,
+  currentTime
 }: {
   order: Order;
   onStatusChange: (order: Order, status: OrderStatus) => void;
   onAssign: () => void;
   onCancel: () => void;
   onViewDetails: () => void;
+  currentTime: number;
 }) {
   const status = statusConfig[order.status];
   const StatusIcon = status.icon;
-  const elapsed = getTimeElapsed(order.updatedAt || order.createdAt);
+  // Calcular tiempo desde que se creó el pedido, actualizado en tiempo real
+  const orderCreatedTime = new Date(order.createdAt).getTime();
+  const delayMs = currentTime - orderCreatedTime;
+  const delayMins = Math.floor(delayMs / 60000);
+  const delayHours = Math.floor(delayMins / 60);
+  let delayText: string;
+  if (delayHours > 0) {
+    delayText = `${delayHours}h ${delayMins % 60}min`;
+  } else {
+    delayText = `${delayMins}min`;
+  }
+  const elapsed = { text: delayText, isUrgent: delayMins > 20, minutes: delayMins };
   const isTransfer = isTransferPayment(order.paymentMethod);
   const needsVerification = isTransfer && !order.isReceiptVerified;
   
-  // Debug para pedido 1035
-  // Logging para debugging del pedido 1040
-  if (order.id === 1040) {
-    console.log('🔍 OrderCard: Pedido 1040 renderizado:', {
-      id: order.id,
-      tableId: order.tableId,
-      tableNumber: order.table?.number,
-      table: order.table,
-      customerName: order.customerName,
-      customerAddress: order.customerAddress,
-      fullOrder: order
-    });
-  }
-  
-  if (order.id === 1035) {
-    console.log('Pedido 1035 en OrderCard:', {
-      id: order.id,
-      paymentMethod: order.paymentMethod,
-      isTransfer,
-      hasReceipt: !!order.transferReceiptImage,
-      isVerified: order.isReceiptVerified,
-      needsVerification
-    });
-  }
+  // Código de debugging específico comentado para optimización
+  // TODO: Eliminar después de verificar que no se necesita
+  // if (order.id === 1040) {
+  //   console.log('🔍 OrderCard: Pedido 1040 renderizado:', {
+  //     id: order.id,
+  //     tableId: order.tableId,
+  //     tableNumber: order.table?.number,
+  //     table: order.table,
+  //     customerName: order.customerName,
+  //     customerAddress: order.customerAddress,
+  //     fullOrder: order
+  //   });
+  // }
+  // 
+  // if (order.id === 1035) {
+  //   console.log('Pedido 1035 en OrderCard:', {
+  //     id: order.id,
+  //     paymentMethod: order.paymentMethod,
+  //     isTransfer,
+  //     hasReceipt: !!order.transferReceiptImage,
+  //     isVerified: order.isReceiptVerified,
+  //     needsVerification
+  //   });
+  // }
 
   return (
     <div className={`bg-white rounded-xl shadow-md overflow-hidden border-l-4 ${order.status === 'pending' ? 'border-yellow-500' :
@@ -1343,15 +1381,15 @@ function OrderCard({
           )}
           {order.status === 'preparing' && (
             <>
-              {/* Si es pedido de mesa, permitir completar directamente sin repartidor */}
+              {/* Si es pedido de mesa, permitir marcar como entregado directamente sin repartidor */}
               {order.tableId ? (
                 <button
-                  onClick={() => onStatusChange(order, 'completed')}
+                  onClick={() => onStatusChange(order, 'delivered')}
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium"
-                  title="Marcar como completado (pedido de mesa)"
+                  title="Entregado a la mesa (listo para cobrar)"
                 >
                   <PackageCheck size={16} />
-                  Completar
+                  Entregado
                 </button>
               ) : (
                 <button
@@ -1453,9 +1491,9 @@ function TableActions({
       )}
       {order.status === 'preparing' && (
         <>
-          {/* Si es pedido de mesa, permitir completar directamente sin repartidor */}
+          {/* Si es pedido de mesa, permitir marcar como entregado directamente sin repartidor */}
           {order.tableId ? (
-            <button onClick={() => onStatusChange(order, 'completed')} className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" title="Marcar como completado (pedido de mesa)">
+            <button onClick={() => onStatusChange(order, 'delivered')} className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" title="Entregado a la mesa (listo para cobrar)">
               <PackageCheck size={16} />
             </button>
           ) : (
