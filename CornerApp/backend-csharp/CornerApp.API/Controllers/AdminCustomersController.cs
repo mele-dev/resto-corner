@@ -49,13 +49,13 @@ public class AdminCustomersController : ControllerBase
             // Filtro de búsqueda
             if (!string.IsNullOrWhiteSpace(search))
             {
-                var searchLower = search.Trim().ToLowerInvariant();
+                var searchLower = search.Trim().ToLower();
                 query = query.Where(c => 
-                    (c.Name != null && c.Name.Contains(searchLower, StringComparison.OrdinalIgnoreCase)) ||
-                    (c.Phone != null && c.Phone.Contains(searchLower, StringComparison.OrdinalIgnoreCase)) ||
-                    (c.Email != null && c.Email.Contains(searchLower, StringComparison.OrdinalIgnoreCase)) ||
-                    (c.DefaultAddress != null && c.DefaultAddress.Contains(searchLower, StringComparison.OrdinalIgnoreCase)) ||
-                    (c.DocumentNumber != null && c.DocumentNumber.Contains(searchLower, StringComparison.OrdinalIgnoreCase))
+                    (c.Name != null && c.Name.ToLower().Contains(searchLower)) ||
+                    (c.Phone != null && c.Phone.ToLower().Contains(searchLower)) ||
+                    (c.Email != null && c.Email.ToLower().Contains(searchLower)) ||
+                    (c.DefaultAddress != null && c.DefaultAddress.ToLower().Contains(searchLower)) ||
+                    (c.DocumentNumber != null && c.DocumentNumber.ToLower().Contains(searchLower))
                 );
             }
             
@@ -102,8 +102,13 @@ public class AdminCustomersController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al cargar clientes");
-            return StatusCode(500, new { error = "Error al cargar clientes" });
+            _logger.LogError(ex, "Error al cargar clientes: {Message}", ex.Message);
+            _logger.LogError(ex, "Stack trace: {StackTrace}", ex.StackTrace);
+            return StatusCode(500, new { 
+                error = "Error al cargar clientes", 
+                details = ex.Message,
+                innerException = ex.InnerException?.Message
+            });
         }
     }
 

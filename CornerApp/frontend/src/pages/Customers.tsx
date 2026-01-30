@@ -52,15 +52,33 @@ export default function CustomersPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+      const searchParam = searchTerm.trim() || undefined;
       const [customersData, statsData] = await Promise.all([
-        api.getCustomers({ search: searchTerm }),
+        api.getCustomers({ search: searchParam }),
         api.getCustomerStats(),
       ]);
-      setCustomers(customersData?.data || []);
+      
+      // Manejar diferentes estructuras de respuesta
+      let customersList: Customer[] = [];
+      if (Array.isArray(customersData)) {
+        // Si la respuesta es directamente un array
+        customersList = customersData;
+      } else if (customersData?.data && Array.isArray(customersData.data)) {
+        // Si la respuesta tiene estructura { data: [...], totalCount: ... }
+        customersList = customersData.data;
+      } else if (customersData && typeof customersData === 'object') {
+        // Intentar extraer datos de cualquier estructura
+        customersList = (customersData as any).data || (customersData as any).customers || [];
+      }
+      
+      console.log('Clientes cargados:', customersList.length, customersList);
+      setCustomers(customersList);
       setStats(statsData || null);
-    } catch (error) {
-      showToast('Error al cargar clientes', 'error');
-      console.error(error);
+    } catch (error: any) {
+      console.error('Error completo al cargar clientes:', error);
+      console.error('Error response:', error?.response);
+      const errorMessage = error?.message || error?.response?.data?.error || 'Error al cargar clientes';
+      showToast(errorMessage, 'error');
       setCustomers([]);
       setStats(null);
     } finally {
