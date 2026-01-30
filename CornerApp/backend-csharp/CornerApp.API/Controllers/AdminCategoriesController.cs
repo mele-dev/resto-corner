@@ -20,15 +20,18 @@ public class AdminCategoriesController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly ILogger<AdminCategoriesController> _logger;
     private readonly IAdminDashboardService _adminDashboardService;
+    private readonly ICacheService? _cache;
 
     public AdminCategoriesController(
         ApplicationDbContext context,
         ILogger<AdminCategoriesController> logger,
-        IAdminDashboardService adminDashboardService)
+        IAdminDashboardService adminDashboardService,
+        ICacheService? cache = null)
     {
         _context = context;
         _logger = logger;
         _adminDashboardService = adminDashboardService;
+        _cache = cache;
     }
 
     /// <summary>
@@ -132,6 +135,13 @@ public class AdminCategoriesController : ControllerBase
                 request.Description, 
                 request.Icon);
 
+            // Invalidar caché de categorías para que se refleje inmediatamente
+            if (_cache != null)
+            {
+                await _cache.RemoveAsync("categories_list");
+                await _cache.RemoveAsync("products_list");
+            }
+
             return Ok(new
             {
                 id = category.Id,
@@ -168,6 +178,13 @@ public class AdminCategoriesController : ControllerBase
                 request.Icon,
                 request.DisplayOrder,
                 request.IsActive);
+
+            // Invalidar caché de categorías para que se refleje inmediatamente
+            if (_cache != null)
+            {
+                await _cache.RemoveAsync("categories_list");
+                await _cache.RemoveAsync("products_list");
+            }
 
             return Ok(new
             {
@@ -219,12 +236,28 @@ public class AdminCategoriesController : ControllerBase
             {
                 category.IsActive = false;
                 await _context.SaveChangesAsync();
+                
+                // Invalidar caché de categorías
+                if (_cache != null)
+                {
+                    await _cache.RemoveAsync("categories_list");
+                    await _cache.RemoveAsync("products_list");
+                }
+                
                 _logger.LogInformation("Categoría desactivada: {CategoryId}", category.Id);
                 return Ok(new { message = "Categoría desactivada (tiene productos)", isActive = false });
             }
 
             _context.Categories.Remove(category);
             await _context.SaveChangesAsync();
+            
+            // Invalidar caché de categorías
+            if (_cache != null)
+            {
+                await _cache.RemoveAsync("categories_list");
+                await _cache.RemoveAsync("products_list");
+            }
+            
             _logger.LogInformation("Categoría eliminada: {CategoryId}", category.Id);
             return Ok(new { message = "Categoría eliminada" });
         }

@@ -36,10 +36,12 @@ export default function CategoriesPage() {
     loadData();
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh: boolean = false) => {
     try {
       setLoading(true);
-      const data = await api.getCategories();
+      // Agregar timestamp para evitar caché del navegador cuando se fuerza recarga
+      const timestamp = forceRefresh ? `?t=${Date.now()}` : '';
+      const data = await api.getCategories(timestamp);
       setCategories(data);
     } catch (error) {
       showToast('Error al cargar categorías', 'error');
@@ -94,8 +96,9 @@ export default function CategoriesPage() {
       }
       setIsFormModalOpen(false);
       // Pequeño delay para asegurar que el servidor haya procesado la creación
-      await new Promise(resolve => setTimeout(resolve, 300));
-      await loadData();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Forzar recarga con cache-busting
+      await loadData(true);
     } catch (error) {
       showToast(editingCategory ? 'Error al actualizar categoría' : 'Error al crear categoría', 'error');
     } finally {

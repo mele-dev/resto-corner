@@ -322,8 +322,9 @@ class ApiClient {
   }
 
   // Categories
-  async getCategories() {
-    return this.request<Category[]>('/api/categories');
+  async getCategories(queryParams?: string) {
+    const endpoint = queryParams ? `/api/categories${queryParams}` : '/api/categories';
+    return this.request<Category[]>(endpoint);
   }
 
   async getCategory(id: number) {
