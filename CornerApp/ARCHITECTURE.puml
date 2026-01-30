@@ -1,0 +1,794 @@
+@startuml
+
+!theme vibrant
+
+title CornerApp - Complete System Architecture (Backend + Frontend + Database)
+
+' ============================================
+' BASE DE DATOS - TODAS LAS ENTIDADES
+' ============================================
+package "Database (SQL Server)" {
+    entity "Orders" as DB_Orders {
+        +int Id
+        +int? CustomerId
+        +int? DeliveryPersonId
+        +int? TableId
+        +string CustomerName
+        +decimal Total
+        +string Status
+        +bool IsArchived
+    }
+    
+    entity "OrderItems" as DB_OrderItems {
+        +int Id
+        +int OrderId
+        +int ProductId
+        +decimal UnitPrice
+        +int Quantity
+    }
+    
+    entity "OrderStatusHistory" as DB_OrderStatusHistory {
+        +int Id
+        +int OrderId
+        +string Status
+        +DateTime CreatedAt
+    }
+    
+    entity "Products" as DB_Products {
+        +int Id
+        +string Name
+        +decimal Price
+        +bool IsAvailable
+        +int CategoryId
+    }
+    
+    entity "SubProducts" as DB_SubProducts {
+        +int Id
+        +int ProductId
+        +string Name
+        +decimal Price
+    }
+    
+    entity "Categories" as DB_Categories {
+        +int Id
+        +string Name
+        +bool IsActive
+    }
+    
+    entity "Customers" as DB_Customers {
+        +int Id
+        +string Name
+        +string Email
+        +int Points
+    }
+    
+    entity "DeliveryPersons" as DB_DeliveryPersons {
+        +int Id
+        +string Name
+        +string Username
+        +bool IsActive
+    }
+    
+    entity "Tables" as DB_Tables {
+        +int Id
+        +string Number
+        +int Capacity
+        +string Status
+        +int? SpaceId
+    }
+    
+    entity "Spaces" as DB_Spaces {
+        +int Id
+        +string Name
+    }
+    
+    entity "PaymentMethods" as DB_PaymentMethods {
+        +int Id
+        +string Name
+        +bool IsEnabled
+    }
+    
+    entity "Admins" as DB_Admins {
+        +int Id
+        +string Username
+        +string Email
+        +string Role
+    }
+    
+    entity "BusinessInfo" as DB_BusinessInfo {
+        +int Id
+        +string Name
+        +string Address
+        +string Phone
+    }
+    
+    entity "Rewards" as DB_Rewards {
+        +int Id
+        +string Name
+        +int PointsRequired
+    }
+    
+    entity "EmailConfigs" as DB_EmailConfigs {
+        +int Id
+        +string SmtpHost
+        +bool IsEnabled
+    }
+    
+    entity "DeliveryZoneConfigs" as DB_DeliveryZoneConfigs {
+        +int Id
+        +string Name
+        +string GeoJsonData
+    }
+    
+    entity "WebhookSubscriptions" as DB_WebhookSubscriptions {
+        +int Id
+        +string Url
+        +string EventType
+    }
+    
+    entity "CashRegisters" as DB_CashRegisters {
+        +int Id
+        +decimal InitialAmount
+        +decimal TotalSales
+        +bool IsOpen
+    }
+    
+    entity "DeliveryCashRegisters" as DB_DeliveryCashRegisters {
+        +int Id
+        +int DeliveryPersonId
+        +decimal InitialAmount
+        +bool IsOpen
+    }
+}
+
+' ============================================
+' BACKEND - TODOS LOS CONTROLLERS
+' ============================================
+package "Backend - API Controllers" {
+    ' Orders
+    class OrdersController <<REST API>> {
+        +CreateOrder()
+        +GetOrder()
+        +GetOrders()
+    }
+    
+    class AdminOrdersController <<REST API>> {
+        +GetActiveOrders()
+        +UpdateOrderStatus()
+        +ArchiveOrder()
+        +VerifyReceipt()
+        +GetOrdersReport()
+    }
+    
+    ' Tables
+    class TablesController <<REST API>> {
+        +GetTables()
+        +CreateOrderFromTable()
+        +GetTableOrders()
+        +UpdateTableStatus()
+    }
+    
+    ' Products & Categories
+    class ProductsController <<REST API>> {
+        +GetProducts()
+        +GetProductById()
+    }
+    
+    class AdminProductsController <<REST API>> {
+        +CreateProduct()
+        +UpdateProduct()
+        +DeleteProduct()
+    }
+    
+    class CategoriesController <<REST API>> {
+        +GetCategories()
+    }
+    
+    class AdminCategoriesController <<REST API>> {
+        +CreateCategory()
+        +UpdateCategory()
+        +DeleteCategory()
+    }
+    
+    class SubProductsController <<REST API>> {
+        +GetSubProducts()
+        +CreateSubProduct()
+    }
+    
+    ' Customers
+    class CustomersController <<REST API>> {
+        +GetCustomers()
+        +Register()
+    }
+    
+    class AdminCustomersController <<REST API>> {
+        +GetCustomers()
+        +UpdateCustomer()
+        +GetCustomerPoints()
+    }
+    
+    ' Delivery
+    class DeliveryPersonController <<REST API>> {
+        +GetAssignedOrders()
+        +UpdateOrderStatus()
+        +Login()
+    }
+    
+    class AdminDeliveryPersonsController <<REST API>> {
+        +GetDeliveryPersons()
+        +CreateDeliveryPerson()
+        +UpdateDeliveryPerson()
+    }
+    
+    ' Auth
+    class AuthController <<REST API>> {
+        +Login()
+        +Register()
+    }
+    
+    ' Admin Management
+    class AdminUsersController <<REST API>> {
+        +GetAdmins()
+        +CreateAdmin()
+        +UpdateAdmin()
+    }
+    
+    ' Reports
+    class AdminReportsController <<REST API>> {
+        +GetSalesReport()
+        +GetOrdersReport()
+        +GetProductsReport()
+    }
+    
+    ' Settings
+    class AdminSettingsController <<REST API>> {
+        +GetSettings()
+        +UpdateSettings()
+    }
+    
+    class AdminBusinessController <<REST API>> {
+        +GetBusinessInfo()
+        +UpdateBusinessInfo()
+    }
+    
+    class AdminRewardsController <<REST API>> {
+        +GetRewards()
+        +CreateReward()
+        +UpdateReward()
+    }
+    
+    ' Cash Register
+    class CashRegisterController <<REST API>> {
+        +OpenCashRegister()
+        +CloseCashRegister()
+        +GetCashRegister()
+    }
+    
+    class DeliveryCashRegisterController <<REST API>> {
+        +OpenCashRegister()
+        +CloseCashRegister()
+    }
+    
+    ' Points
+    class PointsController <<REST API>> {
+        +GetCustomerPoints()
+        +RedeemReward()
+    }
+    
+    ' Spaces
+    class SpacesController <<REST API>> {
+        +GetSpaces()
+        +CreateSpace()
+    }
+    
+    ' File Upload
+    class AdminFileUploadController <<REST API>> {
+        +UploadImage()
+        +DeleteImage()
+    }
+    
+    ' Webhooks
+    class WebhooksController <<REST API>> {
+        +CreateSubscription()
+        +GetSubscriptions()
+    }
+    
+    ' Audit
+    class AuditController <<REST API>> {
+        +GetAuditLogs()
+    }
+    
+    ' Backup
+    class BackupController <<REST API>> {
+        +CreateBackup()
+        +GetBackups()
+    }
+    
+    ' Metrics & Feature Flags
+    class MetricsController <<REST API>> {
+        +GetMetrics()
+    }
+    
+    class FeatureFlagsController <<REST API>> {
+        +GetFeatureFlags()
+        +UpdateFeatureFlag()
+    }
+    
+    class CircuitBreakerController <<REST API>> {
+        +GetCircuitBreakerStatus()
+    }
+}
+
+' ============================================
+' BACKEND - SERVICES
+' ============================================
+package "Backend - Services" {
+    class OrderProcessingService <<Service>> {
+        +ProcessNewOrder()
+        +UpdateOrderStatus()
+    }
+    
+    class OrderNotificationService <<Service>> {
+        +NotifyOrderCreated()
+        +NotifyOrderUpdated()
+        +NotifyOrderStatusChanged()
+    }
+    
+    class EmailService <<Service>> {
+        +SendOrderConfirmationEmail()
+    }
+    
+    class WebhookService <<Service>> {
+        +NotifyOrderUpdate()
+    }
+    
+    class CacheService <<Service>> {
+        +GetCached()
+        +SetCache()
+    }
+    
+    class AdminDashboardService <<Service>> {
+        +GetDashboardStats()
+    }
+    
+    class AuditService <<Service>> {
+        +LogAction()
+    }
+    
+    class DatabaseBackupService <<Service>> {
+        +CreateBackup()
+    }
+    
+    class DeliveryZoneService <<Service>> {
+        +CalculateDeliveryZone()
+    }
+    
+    class FileUploadService <<Service>> {
+        +UploadFile()
+    }
+}
+
+' ============================================
+' BACKEND - SIGNALR HUB
+' ============================================
+package "Backend - SignalR Hub" {
+    class OrdersHub <<SignalR Hub>> {
+        +OnConnectedAsync()
+        +JoinGroup()
+        +OrderCreated()
+        +OrderUpdated()
+        +OrderStatusChanged()
+    }
+}
+
+' ============================================
+' BACKEND - DATA ACCESS
+' ============================================
+package "Backend - Data Access" {
+    class ApplicationDbContext <<EF Core>> {
+        +DbSet<Order> Orders
+        +DbSet<Product> Products
+        +DbSet<Category> Categories
+        +DbSet<Customer> Customers
+        +DbSet<Table> Tables
+        +DbSet<DeliveryPerson> DeliveryPersons
+        +DbSet<Admin> Admins
+        +DbSet<CashRegister> CashRegisters
+    }
+}
+
+' ============================================
+' FRONTEND - API CLIENT
+' ============================================
+package "Frontend - API Client" {
+    class ApiClient <<HTTP Client>> {
+        +request()
+        +getOrders()
+        +createOrder()
+        +updateOrderStatus()
+        +getTables()
+        +getProducts()
+        +login()
+        +getActiveOrders()
+        +archiveOrder()
+        +getOrdersByTable()
+        +processPayment()
+    }
+}
+
+' ============================================
+' FRONTEND - PAGES (TODAS)
+' ============================================
+package "Frontend - Pages" {
+    ' Orders & Kitchen
+    class ActiveOrdersPage <<React Component>> {
+        +loadOrders()
+        +handleAcceptOrder()
+        +handleStatusChange()
+    }
+    
+    class KitchenPage <<React Component>> {
+        +loadOrders()
+        +handleStatusChange()
+    }
+    
+    class OrdersPage <<React Component>> {
+        +loadOrders()
+        +createOrder()
+    }
+    
+    class PaymentVerificationPage <<React Component>> {
+        +loadOrders()
+        +verifyReceipt()
+    }
+    
+    ' Tables
+    class TablesViewPage <<React Component>> {
+        +loadTables()
+        +createOrderFromTable()
+        +processPayment()
+        +handleReimprimirFactura()
+    }
+    
+    class TablesPage <<React Component>> {
+        +loadTables()
+        +createOrder()
+        +processPayment()
+    }
+    
+    class WaiterPage <<React Component>> {
+        +loadTables()
+        +createOrder()
+    }
+    
+    ' Products & Categories
+    class ProductsPage <<React Component>> {
+        +loadProducts()
+        +createProduct()
+        +updateProduct()
+    }
+    
+    class CategoriesPage <<React Component>> {
+        +loadCategories()
+        +createCategory()
+    }
+    
+    ' Customers
+    class CustomersPage <<React Component>> {
+        +loadCustomers()
+        +createCustomer()
+    }
+    
+    ' Delivery
+    class DeliveryOrdersPage <<React Component>> {
+        +loadAssignedOrders()
+        +updateOrderStatus()
+    }
+    
+    class DeliveryPersonsPage <<React Component>> {
+        +loadDeliveryPersons()
+    }
+    
+    class DeliveryPersonsManagementPage <<React Component>> {
+        +loadDeliveryPersons()
+        +createDeliveryPerson()
+    }
+    
+    ' Admin
+    class AdminUsersPage <<React Component>> {
+        +loadAdmins()
+        +createAdmin()
+    }
+    
+    class DashboardPage <<React Component>> {
+        +loadDashboardStats()
+    }
+    
+    ' Settings
+    class SettingsInfoPage <<React Component>> {
+        +loadBusinessInfo()
+        +updateBusinessInfo()
+    }
+    
+    class SettingsBusinessPage <<React Component>> {
+        +loadBusinessSettings()
+    }
+    
+    class SettingsPaymentsPage <<React Component>> {
+        +loadPaymentMethods()
+        +updatePaymentMethod()
+    }
+    
+    class SettingsEmailPage <<React Component>> {
+        +loadEmailConfig()
+        +updateEmailConfig()
+    }
+    
+    class SettingsDeliveryZonesPage <<React Component>> {
+        +loadDeliveryZones()
+        +updateDeliveryZone()
+    }
+    
+    class SettingsRewardsPage <<React Component>> {
+        +loadRewards()
+        +createReward()
+    }
+    
+    class ReportsPage <<React Component>> {
+        +loadReports()
+        +generateReport()
+    }
+    
+    ' Auth
+    class LoginPage <<React Component>> {
+        +handleLogin()
+    }
+    
+    class DeliveryLoginPage <<React Component>> {
+        +handleDeliveryLogin()
+    }
+}
+
+' ============================================
+' FRONTEND - HOOKS & SERVICES
+' ============================================
+package "Frontend - Hooks & Services" {
+    class useOrdersHub <<React Hook>> {
+        +connect()
+        +onOrderCreated()
+        +onOrderUpdated()
+        +onOrderStatusChanged()
+    }
+    
+    class useAuth <<React Hook>> {
+        +login()
+        +logout()
+        +getUser()
+    }
+    
+    class useToast <<React Hook>> {
+        +showToast()
+    }
+}
+
+' ============================================
+' FRONTEND - COMPONENTS
+' ============================================
+package "Frontend - Components" {
+    class OrderCard <<React Component>> {
+        +displayOrder()
+        +handleStatusChange()
+    }
+    
+    class Modal <<React Component>> {
+        +open()
+        +close()
+    }
+    
+    class Invoice <<React Component>> {
+        +renderInvoice()
+        +print()
+    }
+    
+    class Navbar <<React Component>> {
+        +renderNavigation()
+    }
+    
+    class Layout <<React Component>> {
+        +renderLayout()
+    }
+    
+    class Pagination <<React Component>> {
+        +renderPagination()
+    }
+    
+    class Toast <<React Component>> {
+        +showToast()
+    }
+    
+    class ProtectedRoute <<React Component>> {
+        +checkAuth()
+    }
+    
+    class Logo <<React Component>> {
+        +renderLogo()
+    }
+}
+
+' ============================================
+' RELACIONES - BASE DE DATOS
+' ============================================
+DB_Orders ||--o{ DB_OrderItems : "contains"
+DB_Orders ||--o{ DB_OrderStatusHistory : "has history"
+DB_Products ||--o{ DB_OrderItems : "referenced in"
+DB_Products ||--o{ DB_SubProducts : "has"
+DB_Categories ||--o{ DB_Products : "categorizes"
+DB_Customers ||--o{ DB_Orders : "places"
+DB_DeliveryPersons ||--o{ DB_Orders : "delivers"
+DB_DeliveryPersons ||--o{ DB_DeliveryCashRegisters : "has"
+DB_Tables ||--o{ DB_Orders : "for table"
+DB_Spaces ||--o{ DB_Tables : "contains"
+
+' ============================================
+' RELACIONES - BACKEND
+' ============================================
+ApplicationDbContext --> DB_Orders : "Entity Framework"
+ApplicationDbContext --> DB_Products : "Entity Framework"
+ApplicationDbContext --> DB_Categories : "Entity Framework"
+ApplicationDbContext --> DB_Tables : "Entity Framework"
+ApplicationDbContext --> DB_Customers : "Entity Framework"
+ApplicationDbContext --> DB_DeliveryPersons : "Entity Framework"
+ApplicationDbContext --> DB_Admins : "Entity Framework"
+ApplicationDbContext --> DB_CashRegisters : "Entity Framework"
+
+OrdersController --> ApplicationDbContext : "queries"
+AdminOrdersController --> ApplicationDbContext : "queries"
+TablesController --> ApplicationDbContext : "queries"
+ProductsController --> ApplicationDbContext : "queries"
+AdminProductsController --> ApplicationDbContext : "queries"
+CategoriesController --> ApplicationDbContext : "queries"
+AdminCategoriesController --> ApplicationDbContext : "queries"
+CustomersController --> ApplicationDbContext : "queries"
+AdminCustomersController --> ApplicationDbContext : "queries"
+DeliveryPersonController --> ApplicationDbContext : "queries"
+AdminDeliveryPersonsController --> ApplicationDbContext : "queries"
+AdminUsersController --> ApplicationDbContext : "queries"
+AdminReportsController --> ApplicationDbContext : "queries"
+AdminSettingsController --> ApplicationDbContext : "queries"
+AdminBusinessController --> ApplicationDbContext : "queries"
+AdminRewardsController --> ApplicationDbContext : "queries"
+CashRegisterController --> ApplicationDbContext : "queries"
+DeliveryCashRegisterController --> ApplicationDbContext : "queries"
+PointsController --> ApplicationDbContext : "queries"
+SpacesController --> ApplicationDbContext : "queries"
+SubProductsController --> ApplicationDbContext : "queries"
+WebhooksController --> ApplicationDbContext : "queries"
+AuditController --> ApplicationDbContext : "queries"
+BackupController --> ApplicationDbContext : "queries"
+
+OrdersController --> OrderProcessingService : "uses"
+AdminOrdersController --> OrderProcessingService : "uses"
+AdminOrdersController --> OrderNotificationService : "uses"
+TablesController --> OrderNotificationService : "uses"
+
+OrderProcessingService --> EmailService : "sends email"
+OrderProcessingService --> WebhookService : "notifies"
+
+OrderNotificationService --> OrdersHub : "notifies via SignalR"
+
+AdminReportsController --> AdminDashboardService : "uses"
+AuditController --> AuditService : "uses"
+BackupController --> DatabaseBackupService : "uses"
+AdminFileUploadController --> FileUploadService : "uses"
+
+' ============================================
+' RELACIONES - FRONTEND
+' ============================================
+ApiClient --> OrdersController : "HTTP REST"
+ApiClient --> AdminOrdersController : "HTTP REST"
+ApiClient --> TablesController : "HTTP REST"
+ApiClient --> ProductsController : "HTTP REST"
+ApiClient --> AdminProductsController : "HTTP REST"
+ApiClient --> CategoriesController : "HTTP REST"
+ApiClient --> AdminCategoriesController : "HTTP REST"
+ApiClient --> CustomersController : "HTTP REST"
+ApiClient --> AdminCustomersController : "HTTP REST"
+ApiClient --> DeliveryPersonController : "HTTP REST"
+ApiClient --> AdminDeliveryPersonsController : "HTTP REST"
+ApiClient --> AuthController : "HTTP REST"
+ApiClient --> AdminUsersController : "HTTP REST"
+ApiClient --> AdminReportsController : "HTTP REST"
+ApiClient --> AdminSettingsController : "HTTP REST"
+ApiClient --> AdminBusinessController : "HTTP REST"
+ApiClient --> AdminRewardsController : "HTTP REST"
+ApiClient --> CashRegisterController : "HTTP REST"
+ApiClient --> DeliveryCashRegisterController : "HTTP REST"
+ApiClient --> PointsController : "HTTP REST"
+ApiClient --> SpacesController : "HTTP REST"
+ApiClient --> SubProductsController : "HTTP REST"
+ApiClient --> WebhooksController : "HTTP REST"
+ApiClient --> AdminFileUploadController : "HTTP REST"
+
+ActiveOrdersPage --> ApiClient : "calls"
+KitchenPage --> ApiClient : "calls"
+OrdersPage --> ApiClient : "calls"
+PaymentVerificationPage --> ApiClient : "calls"
+TablesViewPage --> ApiClient : "calls"
+TablesPage --> ApiClient : "calls"
+WaiterPage --> ApiClient : "calls"
+ProductsPage --> ApiClient : "calls"
+CategoriesPage --> ApiClient : "calls"
+CustomersPage --> ApiClient : "calls"
+DeliveryOrdersPage --> ApiClient : "calls"
+DeliveryPersonsPage --> ApiClient : "calls"
+DeliveryPersonsManagementPage --> ApiClient : "calls"
+AdminUsersPage --> ApiClient : "calls"
+DashboardPage --> ApiClient : "calls"
+SettingsInfoPage --> ApiClient : "calls"
+SettingsBusinessPage --> ApiClient : "calls"
+SettingsPaymentsPage --> ApiClient : "calls"
+SettingsEmailPage --> ApiClient : "calls"
+SettingsDeliveryZonesPage --> ApiClient : "calls"
+SettingsRewardsPage --> ApiClient : "calls"
+ReportsPage --> ApiClient : "calls"
+LoginPage --> ApiClient : "calls"
+DeliveryLoginPage --> ApiClient : "calls"
+
+ActiveOrdersPage --> useOrdersHub : "uses"
+KitchenPage --> useOrdersHub : "uses"
+TablesViewPage --> useOrdersHub : "uses"
+DeliveryOrdersPage --> useOrdersHub : "uses"
+OrdersPage --> useOrdersHub : "uses"
+
+useOrdersHub --> OrdersHub : "WebSocket connection"
+
+ActiveOrdersPage --> OrderCard : "renders"
+KitchenPage --> OrderCard : "renders"
+TablesViewPage --> Modal : "uses"
+TablesViewPage --> Invoice : "uses"
+ActiveOrdersPage --> Modal : "uses"
+OrdersPage --> Modal : "uses"
+ProductsPage --> Modal : "uses"
+CategoriesPage --> Modal : "uses"
+
+' ============================================
+' NOTAS
+' ============================================
+note right of OrdersHub
+  Real-time notifications
+  via WebSocket (SignalR)
+  - OrderCreated
+  - OrderUpdated
+  - OrderStatusChanged
+end note
+
+note right of ApiClient
+  Centralized HTTP client
+  - Handles authentication
+  - Error handling
+  - Request/Response
+  - All API endpoints
+end note
+
+note right of ApplicationDbContext
+  Entity Framework Core
+  - ORM for database access
+  - Migrations
+  - Relationships
+  - 18 DbSets
+end note
+
+note bottom of ActiveOrdersPage
+  Main page for accepting
+  and managing active orders
+  (both salon and delivery)
+end note
+
+note bottom of TablesViewPage
+  Table management page
+  - Create orders from tables
+  - Process payments
+  - Print invoices
+end note
+
+@enduml
