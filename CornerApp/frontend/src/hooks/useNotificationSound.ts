@@ -28,32 +28,88 @@ export function useNotificationSound() {
   return { playSound };
 }
 
-// Función helper para calcular tiempo transcurrido
-export function getTimeElapsed(dateString: string): { text: string; isUrgent: boolean; minutes: number } {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMinutes / 60);
+// Función helper para calcular tiempo transcurrido como contador (empieza en 0 y va incrementando)
+// Si el pedido está entregado (delivered), el contador se detiene en el momento de entrega
+export function getTimeElapsed(
+  createdAt: string, 
+  orderStatus?: string, 
+  deliveredAt?: string | null,
+  currentTime?: number // Timestamp actual opcional para actualización en tiempo real
+): { text: string; isUrgent: boolean; minutes: number } {
+  try {
+    // Si el pedido está entregado, usar el tiempo hasta la entrega (deliveredAt o updatedAt)
+    // Si no está entregado, usar el tiempo actual (pasado como parámetro o new Date())
+    const endTime = (orderStatus === 'delivered' && deliveredAt) 
+      ? new Date(deliveredAt) 
+      : (currentTime ? new Date(currentTime) : new Date());
+    
+    // Parsear la fecha de creación, manejando diferentes formatos
+    let startDate: Date;
+    if (typeof createdAt === 'string') {
+      // Intentar parsear la fecha
+      startDate = new Date(createdAt);
+      
+      // Si la fecha no es válida, intentar parsearla de otra manera
+      if (isNaN(startDate.getTime())) {
+        // Si viene en formato ISO sin Z, agregar Z para UTC
+        if (createdAt.includes('T') && !createdAt.includes('Z') && !createdAt.includes('+')) {
+          startDate = new Date(createdAt + 'Z');
+        } else {
+          startDate = new Date(createdAt);
+        }
+      }
+    } else {
+      startDate = new Date(createdAt);
+    }
+    
+    // Validar que las fechas sean válidas
+    if (isNaN(startDate.getTime()) || isNaN(endTime.getTime())) {
+      console.warn('Fecha inválida en getTimeElapsed:', { createdAt, deliveredAt, orderStatus });
+      return { text: '0:00', isUrgent: false, minutes: 0 };
+    }
+    
+    const diffMs = endTime.getTime() - startDate.getTime();
+    
+    // Si el tiempo es negativo o cero, retornar 0:00
+    // (puede pasar si hay problemas de zona horaria o si la fecha está en el futuro)
+    if (diffMs <= 0) {
+      return { text: '0:00', isUrgent: false, minutes: 0 };
+    }
   
-  let text: string;
-  let isUrgent = false;
-  
-  if (diffMinutes < 1) {
-    text = 'ahora';
-  } else if (diffMinutes < 60) {
-    text = `${diffMinutes}min`;
-    // Urgente si más de 5 min en pendiente o más de 20 en preparación
-    isUrgent = diffMinutes > 15;
-  } else if (diffHours < 24) {
-    text = `${diffHours}h ${diffMinutes % 60}min`;
-    isUrgent = true;
-  } else {
-    const diffDays = Math.floor(diffHours / 24);
-    text = `${diffDays}d`;
-    isUrgent = true;
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const remainingMinutes = diffMinutes % 60;
+    const remainingSeconds = diffSeconds % 60;
+    
+    let text: string;
+    let isUrgent = false;
+    
+    // Mostrar como contador que empieza en 0
+    if (diffMinutes < 1) {
+      // Menos de 1 minuto: mostrar segundos (0:00, 0:01, etc.)
+      text = `0:${remainingSeconds.toString().padStart(2, '0')}`;
+    } else if (diffMinutes < 60) {
+      // Menos de 1 hora: mostrar minutos y segundos (1:23, 15:45, etc.)
+      text = `${diffMinutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+      // Urgente si más de 15 minutos
+      isUrgent = diffMinutes > 15;
+    } else if (diffHours < 24) {
+      // Menos de 24 horas: mostrar horas, minutos y segundos (1:23:45)
+      text = `${diffHours}:${remainingMinutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+      isUrgent = true;
+    } else {
+      // Más de 24 horas: mostrar días y horas
+      const diffDays = Math.floor(diffHours / 24);
+      const remainingHours = diffHours % 24;
+      text = `${diffDays}d ${remainingHours}h`;
+      isUrgent = true;
+    }
+    
+    return { text, isUrgent, minutes: diffMinutes };
+  } catch (error) {
+    console.error('Error al calcular tiempo transcurrido:', error, { createdAt, deliveredAt, orderStatus });
+    return { text: '0:00', isUrgent: false, minutes: 0 };
   }
-  
-  return { text, isUrgent, minutes: diffMinutes };
 }
 

@@ -56,6 +56,8 @@ export default function KitchenPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [isConnected, setIsConnected] = useState(false);
+  // Estado para actualizar el tiempo en tiempo real cada segundo (usar timestamp para forzar re-render)
+  const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Mapa para obtener el número de mesa por tableId
   const getTableNumber = (tableId: number | null | undefined): string | null => {
@@ -168,6 +170,14 @@ export default function KitchenPage() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Actualizar el tiempo cada segundo para mostrar el contador en tiempo real
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now()); // Usar timestamp para forzar re-render
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadData = async () => {
@@ -378,6 +388,7 @@ export default function KitchenPage() {
                       onAssign={() => openAssignModal(order)}
                       onCancel={() => setConfirmAction({ type: 'cancel', order })}
                       getTableNumber={getTableNumber}
+                      currentTime={currentTime}
                     />
                   ))}
                 </div>
@@ -404,7 +415,15 @@ export default function KitchenPage() {
                   {paginatedOrders.map(order => {
                   const status = statusConfig[order.status];
                   const StatusIcon = status.icon;
-                  const elapsed = getTimeElapsed(order.updatedAt || order.createdAt);
+                  // Calcular tiempo desde que se creó el pedido (createdAt) - contador que empieza en 0
+                  // Si está entregado, el contador se detiene en el momento de entrega
+                  // Pasar currentTime para actualización en tiempo real
+                  const elapsed = getTimeElapsed(
+                    order.createdAt, 
+                    order.status, 
+                    order.status === 'delivered' ? order.updatedAt : null,
+                    currentTime
+                  );
 
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
@@ -590,17 +609,27 @@ function KitchenOrderCard({
   onStatusChange,
   onAssign,
   onCancel,
-  getTableNumber
+  getTableNumber,
+  currentTime
 }: {
   order: Order;
   onStatusChange: (order: Order, status: OrderStatus, deliveryPersonId?: number) => void;
   onAssign: () => void;
   onCancel: () => void;
   getTableNumber: (tableId: number | null | undefined) => string | null;
+  currentTime: number;
 }) {
   const status = statusConfig[order.status];
   const StatusIcon = status.icon;
-  const elapsed = getTimeElapsed(order.updatedAt || order.createdAt);
+  // Calcular tiempo desde que se creó el pedido (createdAt) - contador que empieza en 0
+  // Si está entregado, el contador se detiene en el momento de entrega
+  // Pasar currentTime para actualización en tiempo real
+  const elapsed = getTimeElapsed(
+    order.createdAt, 
+    order.status, 
+    order.status === 'delivered' ? order.updatedAt : null,
+    currentTime
+  );
 
   return (
     <div className={`bg-white rounded-xl shadow-md overflow-hidden border-l-4 ${order.status === 'pending' ? 'border-yellow-500' :

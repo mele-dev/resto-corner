@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useOrdersHub } from '../hooks/useOrdersHub';
+import { getTimeElapsed } from '../hooks/useNotificationSound';
 import Modal from '../components/Modal/Modal';
 // OrderStatus no se usa directamente, solo en tipos
 import type { Table, TableStatus, Space, Product, PaymentMethod, Order, Category, SubProduct } from '../types';
@@ -532,22 +533,7 @@ export default function TablesViewPage() {
     }
   };
 
-  const getTimeElapsed = (dateString: string) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffDays > 0) {
-      return `${diffDays}d ${diffHours % 24}h`;
-    } else if (diffHours > 0) {
-      return `${diffHours}h ${diffMins % 60}m`;
-    } else {
-      return `${diffMins}m`;
-    }
-  };
+  // getTimeElapsed ahora se importa desde useNotificationSound
 
   // Función para calcular el tiempo de demora de los pedidos de una mesa
   // Calcula desde que se creó el pedido (createdAt)
@@ -627,20 +613,40 @@ export default function TablesViewPage() {
     }
   };
 
-  // Función para calcular el tiempo de demora en tiempo real desde createdAt
+  // Función para calcular el tiempo de demora en tiempo real desde createdAt (formato contador)
   const calculateRealTimeDelay = (createdAt: string): { delay: string; isUrgent: boolean } => {
     const delayMs = currentTime - new Date(createdAt).getTime();
-    const delayMins = Math.floor(delayMs / 60000);
-    const delayHours = Math.floor(delayMins / 60);
     
-    let delayText: string;
-    if (delayHours > 0) {
-      delayText = `${delayHours}h ${delayMins % 60}m`;
-    } else {
-      delayText = `${delayMins}m`;
+    // Si el tiempo es negativo, retornar 0
+    if (delayMs < 0) {
+      return { delay: '0:00', isUrgent: false };
     }
     
-    const isUrgent = delayMins > 20;
+    const delaySeconds = Math.floor(delayMs / 1000);
+    const delayMinutes = Math.floor(delaySeconds / 60);
+    const delayHours = Math.floor(delayMinutes / 60);
+    const remainingMinutes = delayMinutes % 60;
+    const remainingSeconds = delaySeconds % 60;
+    
+    let delayText: string;
+    let isUrgent = false;
+    
+    // Formato contador que empieza en 0
+    if (delayMinutes < 1) {
+      delayText = `0:${remainingSeconds.toString().padStart(2, '0')}`;
+    } else if (delayMinutes < 60) {
+      delayText = `${delayMinutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+      isUrgent = delayMinutes > 15;
+    } else if (delayHours < 24) {
+      delayText = `${delayHours}:${remainingMinutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+      isUrgent = true;
+    } else {
+      const delayDays = Math.floor(delayHours / 24);
+      const remainingHours = delayHours % 24;
+      delayText = `${delayDays}d ${remainingHours}h`;
+      isUrgent = true;
+    }
+    
     return { delay: delayText, isUrgent };
   };
 
@@ -1469,12 +1475,15 @@ export default function TablesViewPage() {
                           <div className="text-white text-center drop-shadow-lg">
                             <div className="text-sm font-bold">{table.number}</div>
                             <div className="text-[10px] opacity-90">{table.capacity}p</div>
-                            {(table.status === 'OrderPlaced' || table.status === 'Occupied') && table.orderPlacedAt && (
-                              <div className="text-[9px] mt-1 opacity-90 flex items-center justify-center gap-1">
-                                <Clock size={8} />
-                                {getTimeElapsed(table.orderPlacedAt)}
-                              </div>
-                            )}
+                            {(table.status === 'OrderPlaced' || table.status === 'Occupied') && table.orderPlacedAt && (() => {
+                              const elapsed = getTimeElapsed(table.orderPlacedAt, undefined, null, currentTime);
+                              return (
+                                <div className="text-[9px] mt-1 opacity-90 flex items-center justify-center gap-1">
+                                  <Clock size={8} />
+                                  {elapsed.text}
+                                </div>
+                              );
+                            })()}
                             {/* Mostrar tiempo de demora si existe (actualizado en tiempo real) */}
                             {tableDelays[table.id] && (() => {
                               const realTimeDelay = calculateRealTimeDelay(tableDelays[table.id].createdAt);
@@ -1588,12 +1597,20 @@ export default function TablesViewPage() {
                         {table.number}
                       </h3>
                       <p className="text-sm text-gray-500">ID: #{table.id}</p>
-                      {(table.status === 'OrderPlaced' || table.status === 'Occupied') && table.orderPlacedAt && (
-                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1 font-semibold">
-                          <Clock size={12} />
-                          Pedido hace {getTimeElapsed(table.orderPlacedAt)}
-                        </p>
-                      )}
+                      {(table.status === 'OrderPlaced' || table.status === 'Occupied') && table.orderPlacedAt && (() => {
+                        const elapsed = getTimeElapsed(table.orderPlacedAt, undefined, null, currentTime);
+                        return (
+                          <p className={`text-xs mt-1 flex items-center gap-1 font-semibold ${
+                            elapsed.isUrgent 
+                              ? 'text-red-600' 
+                              : 'text-gray-600'
+                          }`}>
+                            <Clock size={12} />
+                            {elapsed.isUrgent && '🔥 '}
+                            {elapsed.text}
+                          </p>
+                        );
+                      })()}
                       {/* Mostrar tiempo de demora si existe (actualizado en tiempo real) */}
                       {tableDelays[table.id] && (() => {
                         const realTimeDelay = calculateRealTimeDelay(tableDelays[table.id].createdAt);
@@ -2008,14 +2025,17 @@ export default function TablesViewPage() {
                   </p>
                 </div>
               </div>
-              {tableForConsumption.orderPlacedAt && (
-                <div className="mt-3 pt-3 border-t border-gray-300">
-                  <p className="text-xs text-gray-600 flex items-center gap-1">
-                    <Clock size={12} />
-                    Tiempo ocupada: {getTimeElapsed(tableForConsumption.orderPlacedAt)}
-                  </p>
-                </div>
-              )}
+              {tableForConsumption.orderPlacedAt && (() => {
+                const elapsed = getTimeElapsed(tableForConsumption.orderPlacedAt, undefined, null, currentTime);
+                return (
+                  <div className="mt-3 pt-3 border-t border-gray-300">
+                    <p className="text-xs text-gray-600 flex items-center gap-1">
+                      <Clock size={12} />
+                      Tiempo: {elapsed.text}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Consumo Actual */}
@@ -2078,9 +2098,31 @@ export default function TablesViewPage() {
                                 </span>
                               )}
                             </div>
-                            <span className="text-sm font-medium text-gray-700">
-                              ${order.total.toFixed(2)}
-                            </span>
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="text-sm font-medium text-gray-700">
+                                ${order.total.toFixed(2)}
+                              </span>
+                              {/* Mostrar tiempo transcurrido desde que se creó el pedido */}
+                              {order.createdAt && (() => {
+                                const elapsed = getTimeElapsed(
+                                  order.createdAt, 
+                                  order.status, 
+                                  order.status === 'delivered' ? order.updatedAt : null,
+                                  currentTime
+                                );
+                                return (
+                                  <span className={`text-xs flex items-center gap-1 ${
+                                    elapsed.isUrgent 
+                                      ? 'text-red-600 font-bold' 
+                                      : 'text-gray-500'
+                                  }`}>
+                                    <Clock size={10} />
+                                    {elapsed.isUrgent && '🔥 '}
+                                    {elapsed.text}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                           </div>
                           
                           {/* Items del pedido */}
