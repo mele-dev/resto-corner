@@ -262,6 +262,90 @@ class ApiClient {
     return this.updateOrderStatus(orderId, 'completed');
   }
 
+  async sendPOSTransaction(amount: number) {
+    console.log('📤 [POS] Enviando transacción al POS:', { amount });
+    
+    const response = await this.request<{ 
+      success: boolean; 
+      message: string; 
+      transactionId?: number;
+      sTransactionId?: string;
+      transactionDateTime?: string;
+      response?: string;
+    }>('/admin/api/pos/transaction', {
+      method: 'POST',
+      body: { amount },
+    });
+    
+    console.log('✅ [POS] Respuesta del POST al POS:', {
+      success: response.success,
+      message: response.message,
+      transactionId: response.transactionId,
+      sTransactionId: response.sTransactionId,
+      transactionDateTime: response.transactionDateTime,
+      response: response.response,
+      respuestaCompleta: response
+    });
+    
+    return response;
+  }
+
+  async sendPOSVoid(amount: number) {
+    return this.request<{ success: boolean; message: string; response?: string }>('/admin/api/pos/void', {
+      method: 'POST',
+      body: { amount },
+    });
+  }
+
+  async queryPOSTransaction(transactionId: number | string, transactionDateTime: string) {
+    const requestBody: { transactionId?: number; sTransactionId?: string; transactionDateTime: string } = {
+      transactionDateTime,
+    };
+    
+    if (typeof transactionId === 'number') {
+      requestBody.transactionId = transactionId;
+      requestBody.sTransactionId = transactionId.toString();
+    } else {
+      requestBody.sTransactionId = transactionId;
+      const parsed = parseInt(transactionId, 10);
+      if (!isNaN(parsed)) {
+        requestBody.transactionId = parsed;
+      }
+    }
+
+    console.log('🔄 [POS] Consultando estado de transacción (polling):', {
+      transactionId,
+      transactionDateTime,
+      requestBody
+    });
+
+    const response = await this.request<{ 
+      success: boolean;
+      statusCode: number;
+      statusMessage: string;
+      isCompleted: boolean;
+      isPending: boolean;
+      isError: boolean;
+      response?: string;
+    }>('/admin/api/pos/query', {
+      method: 'POST',
+      body: requestBody,
+    });
+    
+    console.log('📥 [POS] Respuesta del polling:', {
+      success: response.success,
+      statusCode: response.statusCode,
+      statusMessage: response.statusMessage,
+      isCompleted: response.isCompleted,
+      isPending: response.isPending,
+      isError: response.isError,
+      response: response.response,
+      respuestaCompleta: response
+    });
+
+    return response;
+  }
+
   // Products
   async getProducts() {
     return this.request<Product[]>('/admin/api/products');

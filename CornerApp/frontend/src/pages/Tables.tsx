@@ -543,57 +543,63 @@ export default function TablesPage() {
     }
   };
 
-  const enviarTransaccionPOS = async (amount: number) => {
+  const enviarTransaccionPOS = async (amount: number): Promise<{ success: boolean; message: string }> => {
     try {
-      const urlString = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
+      // Llamar al endpoint del backend que maneja la transacción POS
+      const response = await api.sendPOSTransaction(amount);
       
-      // Formatear fecha como yyyyMMddHHmmssSSS
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
-      const transactionDateTime = `${year}${month}${day}${hours}${minutes}${seconds}${milliseconds}`;
-      
-      // Convertir el monto a centavos (multiplicar por 100 y quitar decimales)
-      const amountInCents = Math.round(amount * 100).toString();
-      
-      // JSON de envío transacción - datos hardcodeados según el ejemplo Java
-      const json = {
-        "PosID": "1",
-        "SystemId": "1",
-        "Branch": "1",
-        "ClientAppId": "1",
-        "UserId": "1",
-        "TransactionDateTimeyyyyMMddHHmmssSSS": transactionDateTime,
-        "Amount": amountInCents,
-        "Quotas": "5",
-        "Plan": "0",
-        "Currency": "858",
-        "TaxRefund": "1",
-        "TaxableAmount": "1194400",
-        "InvoiceAmount": "1420000"
-      };
-
-      const response = await fetch(urlString, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=UTF-8',
-        },
-        body: JSON.stringify(json),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error en respuesta del POS: ${response.status}`);
+      if (!response.transactionId && !response.sTransactionId) {
+        throw new Error('No se recibió TransactionId de la transacción POS');
       }
 
-      return await response.json();
+      if (!response.transactionDateTime) {
+        throw new Error('No se recibió TransactionDateTime de la transacción POS');
+      }
+
+      const transactionId = response.transactionId || response.sTransactionId!;
+      const transactionDateTime = response.transactionDateTime;
+
+      // Iniciar polling para consultar el estado de la transacción cada 2 segundos
+      return new Promise((resolve, reject) => {
+        const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
+        let attempts = 0;
+        
+        const pollInterval = setInterval(async () => {
+          attempts++;
+          
+          try {
+            const queryResponse = await api.queryPOSTransaction(transactionId, transactionDateTime);
+            
+            if (queryResponse.isCompleted) {
+              clearInterval(pollInterval);
+              resolve({ 
+                success: true, 
+                message: `Transacción POS completada: ${queryResponse.statusMessage}` 
+              });
+            } else if (queryResponse.isError) {
+              clearInterval(pollInterval);
+              reject(new Error(`Transacción POS rechazada: ${queryResponse.statusMessage}`));
+            } else if (queryResponse.isPending) {
+              // Continuar consultando
+              if (attempts >= maxAttempts) {
+                clearInterval(pollInterval);
+                reject(new Error('Tiempo de espera excedido para la transacción POS'));
+              }
+            } else {
+              // Estado desconocido, continuar consultando
+              if (attempts >= maxAttempts) {
+                clearInterval(pollInterval);
+                reject(new Error('Tiempo de espera excedido para la transacción POS'));
+              }
+            }
+          } catch (error: any) {
+            clearInterval(pollInterval);
+            reject(new Error(`Error al consultar estado de transacción POS: ${error.message}`));
+          }
+        }, 2000); // Consultar cada 2 segundos
+      });
     } catch (error: any) {
-      console.error('Error al enviar transacción al POS:', error);
-      throw new Error(`Error al comunicarse con el POS: ${error.message}`);
+      throw new Error(`Error al enviar transacción POS: ${error.message}`);
     }
   };
 
@@ -608,10 +614,11 @@ export default function TablesPage() {
       // Si el método de pago es POS, enviar transacción al POS primero
       if (selectedPaymentMethod.toLowerCase() === 'pos') {
         try {
-          await enviarTransaccionPOS(totalAmount);
-          showToast('Transacción POS enviada exitosamente', 'success');
+          showToast('Enviando transacción POS...', 'info');
+          const posResult = await enviarTransaccionPOS(totalAmount);
+          showToast(posResult.message || 'Transacción POS completada exitosamente', 'success');
         } catch (error: any) {
-          showToast(`Error al enviar transacción POS: ${error.message}`, 'error');
+          showToast(`Error en transacción POS: ${error.message}`, 'error');
           return; // No continuar con el procesamiento del pago si falla el POS
         }
       }

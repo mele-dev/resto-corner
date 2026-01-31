@@ -8,6 +8,9 @@ using CornerApp.API.DTOs;
 using CornerApp.API.Constants;
 using CornerApp.API.Hubs;
 using CornerApp.API.Helpers;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 namespace CornerApp.API.Controllers;
 
@@ -27,6 +30,7 @@ public class AdminOrdersController : ControllerBase
     private readonly IOrderNotificationService _orderNotificationService;
     private readonly IWebhookService _webhookService;
     private readonly IEmailService _emailService;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ICacheService? _cache;
     private readonly IMetricsService? _metricsService;
     
@@ -34,6 +38,13 @@ public class AdminOrdersController : ControllerBase
     private static readonly TimeSpan ORDER_STATS_CACHE_DURATION = TimeSpan.FromMinutes(2);
     private const int MAX_PAGE_SIZE = 100;
     private const int DEFAULT_PAGE_SIZE = 20;
+    
+    // Constantes para POS
+    private const string POS_ID = "22224628";
+    private const string SYSTEM_ID = "cb67e3e5-3ab9-3a6b-960b-2b874b68ab3c";
+    private const string POS_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
+    private const string POS_VOID_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseVoidByTicket";
+    private const string POS_QUERY_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseQuery";
 
     public AdminOrdersController(
         ApplicationDbContext context,
@@ -43,6 +54,7 @@ public class AdminOrdersController : ControllerBase
         IOrderNotificationService orderNotificationService,
         IWebhookService webhookService,
         IEmailService emailService,
+        IHttpClientFactory httpClientFactory,
         ICacheService? cache = null,
         IMetricsService? metricsService = null)
     {
@@ -53,6 +65,7 @@ public class AdminOrdersController : ControllerBase
         _orderNotificationService = orderNotificationService;
         _webhookService = webhookService;
         _emailService = emailService;
+        _httpClientFactory = httpClientFactory;
         _cache = cache;
         _metricsService = metricsService;
     }
@@ -1036,6 +1049,411 @@ public class AdminOrdersController : ControllerBase
 
         return Ok(history);
     }
+
+    /// <summary>
+    /// Envía una transacción al POS externo
+    /// </summary>
+    [HttpPost("pos/transaction")]
+    public async Task<ActionResult> SendPOSTransaction([FromBody] POSTransactionRequest request)
+    {
+        try
+        {
+            if (request.Amount <= 0)
+            {
+                return BadRequest(new { error = "El monto debe ser mayor a 0" });
+            }
+
+            // Formatear fecha como yyyyMMddHHmmssSSS
+            var now = DateTime.UtcNow;
+            var transactionDateTime = now.ToString("yyyyMMddHHmmssfff");
+
+            // Convertir el monto: si es 2000, debe ser "200000" (multiplicar por 100)
+            var amountFormatted = ((long)Math.Round(request.Amount * 100)).ToString();
+
+            // Crear el JSON exactamente como lo hace el código Java
+            // Construir el JSON manualmente para mantener los nombres exactos
+            var jsonContent = $@"{{
+  ""PosID"": ""{POS_ID}"",
+  ""SystemId"": ""{SYSTEM_ID}"",
+  ""Branch"": ""1"",
+  ""ClientAppId"": ""1"",
+  ""UserId"": ""1"",
+  ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{transactionDateTime}"",
+  ""Amount"": ""{amountFormatted}"",
+  ""Quotas"": ""5"",
+  ""Plan"": ""0"",
+  ""Currency"": ""858"",
+  ""TaxRefund"": ""1"",
+  ""TaxableAmount"": ""1194400"",
+  ""InvoiceAmount"": ""1420000""
+}}";
+
+            var httpClient = _httpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+            
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+            {
+                CharSet = "UTF-8"
+            };
+
+            var response = await httpClient.PostAsync(POS_API_URL, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Error al enviar transacción POS. Status: {Status}, Response: {Response}", 
+                    response.StatusCode, responseContent);
+                return StatusCode((int)response.StatusCode, new { 
+                    error = "Error al comunicarse con el POS", 
+                    details = responseContent 
+                });
+            }
+
+            // Parsear la respuesta para extraer el TransactionId
+            // La respuesta del POS viene como: {"ResponseCode":0,"TransactionId":2603079266119181,"STransactionId":"2603079266119181"}
+            long? transactionId = null;
+            string? sTransactionId = null;
+            try
+            {
+                // Parsear la respuesta directa del POS
+                var responseJson = JsonSerializer.Deserialize<JsonElement>(responseContent);
+                
+                // Buscar TransactionId directamente en la respuesta del POS
+                if (responseJson.TryGetProperty("TransactionId", out var transactionIdElement))
+                {
+                    if (transactionIdElement.ValueKind == JsonValueKind.Number)
+                    {
+                        transactionId = transactionIdElement.GetInt64();
+                        sTransactionId = transactionId.Value.ToString();
+                    }
+                    else if (transactionIdElement.ValueKind == JsonValueKind.String)
+                    {
+                        sTransactionId = transactionIdElement.GetString();
+                        if (long.TryParse(sTransactionId, out var parsedId))
+                        {
+                            transactionId = parsedId;
+                        }
+                    }
+                }
+                
+                // Si no se encontró TransactionId, buscar STransactionId
+                if (transactionId == null && responseJson.TryGetProperty("STransactionId", out var sTransactionIdElement))
+                {
+                    sTransactionId = sTransactionIdElement.GetString();
+                    if (!string.IsNullOrEmpty(sTransactionId) && long.TryParse(sTransactionId, out var parsedId))
+                    {
+                        transactionId = parsedId;
+                    }
+                }
+                
+                // También buscar con camelCase por si acaso
+                if (transactionId == null && responseJson.TryGetProperty("transactionId", out var transactionIdElementCamel))
+                {
+                    if (transactionIdElementCamel.ValueKind == JsonValueKind.Number)
+                    {
+                        transactionId = transactionIdElementCamel.GetInt64();
+                        sTransactionId = transactionId.Value.ToString();
+                    }
+                    else if (transactionIdElementCamel.ValueKind == JsonValueKind.String)
+                    {
+                        sTransactionId = transactionIdElementCamel.GetString();
+                        if (long.TryParse(sTransactionId, out var parsedId))
+                        {
+                            transactionId = parsedId;
+                        }
+                    }
+                }
+                
+                if (transactionId == null)
+                {
+                    _logger.LogWarning("No se encontró TransactionId en la respuesta del POS. ResponseContent: {ResponseContent}", responseContent);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error al parsear TransactionId de la respuesta POS. ResponseContent: {ResponseContent}", responseContent);
+            }
+
+            _logger.LogInformation("Transacción POS enviada exitosamente. Monto: {Amount}, TransactionId: {TransactionId}, Response: {Response}", 
+                request.Amount, transactionId, responseContent);
+
+            return Ok(new { 
+                success = true, 
+                message = "Transacción POS enviada exitosamente",
+                transactionId = transactionId,
+                sTransactionId = sTransactionId,
+                transactionDateTime = transactionDateTime,
+                response = responseContent 
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al enviar transacción POS");
+            return StatusCode(500, new { error = "Error al enviar transacción POS", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Envía una devolución (void) al POS externo
+    /// </summary>
+    [HttpPost("pos/void")]
+    public async Task<ActionResult> SendPOSVoid([FromBody] POSVoidRequest request)
+    {
+        try
+        {
+            if (request.Amount <= 0)
+            {
+                return BadRequest(new { error = "El monto debe ser mayor a 0" });
+            }
+
+            // Formatear fecha como yyyyMMddHHmmssSSS
+            var now = DateTime.UtcNow;
+            var transactionDateTime = now.ToString("yyyyMMddHHmmssfff");
+
+            // Convertir el monto: si es 1120, debe ser "112000" (multiplicar por 100)
+            var amountFormatted = ((long)Math.Round(request.Amount * 100)).ToString();
+
+            // Crear el JSON exactamente como lo hace el código Java para devoluciones
+            // Construir el JSON manualmente para mantener los nombres exactos
+            var jsonContent = $@"{{
+  ""PosID"": ""{POS_ID}"",
+  ""SystemId"": ""{SYSTEM_ID}"",
+  ""Branch"": ""1"",
+  ""ClientAppId"": ""1"",
+  ""UserId"": ""1"",
+  ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{transactionDateTime}"",
+  ""Amount"": ""{amountFormatted}"",
+  ""Quotas"": ""1"",
+  ""Plan"": ""0"",
+  ""Currency"": ""858"",
+  ""TaxRefund"": ""1"",
+  ""TaxableAmount"": ""1194400"",
+  ""InvoiceAmount"": ""1420000""
+}}";
+
+            var httpClient = _httpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+            
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+            {
+                CharSet = "UTF-8"
+            };
+
+            var response = await httpClient.PostAsync(POS_VOID_API_URL, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Error al enviar devolución POS. Status: {Status}, Response: {Response}", 
+                    response.StatusCode, responseContent);
+                return StatusCode((int)response.StatusCode, new { 
+                    error = "Error al comunicarse con el POS para devolución", 
+                    details = responseContent 
+                });
+            }
+
+            _logger.LogInformation("Devolución POS enviada exitosamente. Monto: {Amount}, Response: {Response}", 
+                request.Amount, responseContent);
+
+            return Ok(new { 
+                success = true, 
+                message = "Devolución POS enviada exitosamente",
+                response = responseContent 
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al enviar devolución POS");
+            return StatusCode(500, new { error = "Error al enviar devolución POS", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Consulta el estado de una transacción POS
+    /// </summary>
+    [HttpPost("pos/query")]
+    public async Task<ActionResult> QueryPOSTransaction([FromBody] POSQueryRequest request)
+    {
+        try
+        {
+            if (request.TransactionId == null && string.IsNullOrWhiteSpace(request.STransactionId))
+            {
+                return BadRequest(new { error = "TransactionId o STransactionId es requerido" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.TransactionDateTime))
+            {
+                return BadRequest(new { error = "TransactionDateTime es requerido" });
+            }
+
+            var transactionId = request.TransactionId ?? (long.TryParse(request.STransactionId, out var parsed) ? parsed : 0);
+            var sTransactionId = request.STransactionId ?? request.TransactionId?.ToString() ?? "0";
+
+            if (transactionId == 0)
+            {
+                return BadRequest(new { error = "TransactionId inválido" });
+            }
+
+            // Crear el JSON para consultar el estado
+            var jsonContent = $@"{{
+  ""PosID"": ""{POS_ID}"",
+  ""SystemId"": ""{SYSTEM_ID}"",
+  ""Branch"": ""1"",
+  ""ClientAppId"": ""1"",
+  ""UserId"": ""1"",
+  ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{request.TransactionDateTime}"",
+  ""TransactionId"": {transactionId},
+  ""STransactionId"": ""{sTransactionId}""
+}}";
+
+            var httpClient = _httpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+            
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+            {
+                CharSet = "UTF-8"
+            };
+
+            var response = await httpClient.PostAsync(POS_QUERY_API_URL, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Error al consultar transacción POS. Status: {Status}, Response: {Response}", 
+                    response.StatusCode, responseContent);
+                return StatusCode((int)response.StatusCode, new { 
+                    error = "Error al consultar transacción POS", 
+                    details = responseContent 
+                });
+            }
+
+            // Parsear la respuesta para obtener el código de estado
+            // La respuesta del POS viene como: {"ResponseCode":10,"RemainingExpirationTime":238.0,...}
+            int statusCode = -1;
+            string statusMessage = "Error no determinado";
+            try
+            {
+                var responseJson = JsonSerializer.Deserialize<JsonElement>(responseContent);
+                
+                // Buscar ResponseCode (campo principal según la documentación)
+                if (responseJson.TryGetProperty("ResponseCode", out var responseCodeElement))
+                {
+                    if (responseCodeElement.ValueKind == JsonValueKind.Number)
+                        statusCode = responseCodeElement.GetInt32();
+                    else if (responseCodeElement.ValueKind == JsonValueKind.String && int.TryParse(responseCodeElement.GetString(), out var parsedCode))
+                        statusCode = parsedCode;
+                }
+                // También buscar con camelCase por si acaso
+                else if (responseJson.TryGetProperty("responseCode", out var responseCodeElementCamel))
+                {
+                    if (responseCodeElementCamel.ValueKind == JsonValueKind.Number)
+                        statusCode = responseCodeElementCamel.GetInt32();
+                    else if (responseCodeElementCamel.ValueKind == JsonValueKind.String && int.TryParse(responseCodeElementCamel.GetString(), out var parsedCode))
+                        statusCode = parsedCode;
+                }
+                // Fallback a otros nombres posibles
+                else if (responseJson.TryGetProperty("Code", out var codeElement))
+                {
+                    if (codeElement.ValueKind == JsonValueKind.Number)
+                        statusCode = codeElement.GetInt32();
+                    else if (codeElement.ValueKind == JsonValueKind.String && int.TryParse(codeElement.GetString(), out var parsedCode))
+                        statusCode = parsedCode;
+                }
+                else if (responseJson.TryGetProperty("code", out var codeElementCamel))
+                {
+                    if (codeElementCamel.ValueKind == JsonValueKind.Number)
+                        statusCode = codeElementCamel.GetInt32();
+                    else if (codeElementCamel.ValueKind == JsonValueKind.String && int.TryParse(codeElementCamel.GetString(), out var parsedCode))
+                        statusCode = parsedCode;
+                }
+                else if (responseJson.TryGetProperty("StatusCode", out var statusCodeElement))
+                {
+                    if (statusCodeElement.ValueKind == JsonValueKind.Number)
+                        statusCode = statusCodeElement.GetInt32();
+                    else if (statusCodeElement.ValueKind == JsonValueKind.String && int.TryParse(statusCodeElement.GetString(), out var parsedCode))
+                        statusCode = parsedCode;
+                }
+
+                // Obtener el mensaje de la codiguera
+                statusMessage = GetPOSStatusCodeMessage(statusCode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo parsear el código de estado de la respuesta POS. ResponseContent: {ResponseContent}", responseContent);
+            }
+
+            _logger.LogInformation("Consulta POS realizada. TransactionId: {TransactionId}, StatusCode: {StatusCode}, Message: {Message}", 
+                transactionId, statusCode, statusMessage);
+
+            // Determinar el estado según la documentación del POS
+            // ResponseCode 0 o 100 = Resultado OK (completada)
+            // ResponseCode 10 = Se debe consultar por la transacción (pendiente)
+            // ResponseCode 11 = Aguardando por operación en el pinpad (pendiente)
+            // ResponseCode 12 = Tiempo de transacción excedido (error)
+            // ResponseCode > 100 = Error
+            // ResponseCode < 0 = Error
+            bool isCompleted = statusCode == 0 || statusCode == 100;
+            bool isPending = statusCode == 10 || statusCode == 11;
+            bool isError = (statusCode > 100 && statusCode != 999) || statusCode < 0 || statusCode == 12;
+            
+            // Si statusCode es -1, significa que no se pudo parsear, considerar como error
+            if (statusCode == -1)
+            {
+                isError = true;
+                isPending = false;
+                isCompleted = false;
+            }
+
+            return Ok(new { 
+                success = true,
+                statusCode = statusCode,
+                statusMessage = statusMessage,
+                isCompleted = isCompleted,
+                isPending = isPending,
+                isError = isError,
+                response = responseContent 
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al consultar transacción POS");
+            return StatusCode(500, new { error = "Error al consultar transacción POS", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el mensaje correspondiente al código de estado del POS según la codiguera
+    /// </summary>
+    private string GetPOSStatusCodeMessage(int code)
+    {
+        return code switch
+        {
+            0 => "Resultado OK",
+            100 => "Resultado OK",
+            101 => "Número de pinpad inválido",
+            102 => "Número de sucursal inválido",
+            103 => "Número de caja inválido",
+            104 => "Fecha de la transacción inválida",
+            105 => "Monto no válido",
+            106 => "Cantidad de cuotas inválidas",
+            107 => "Número de plan inválido",
+            108 => "Número de factura inválido",
+            109 => "Moneda ingresada no válida",
+            110 => "Número de ticket inválido",
+            111 => "No existe transacción",
+            112 => "Transacción finalizada",
+            113 => "Identificador de sistema inválido",
+            10 => "Se debe consultar por la transacción",
+            11 => "Aguardando por operación en el pinpad",
+            12 => "Tiempo de transacción excedido, envíe datos nuevamente",
+            999 => "Error no determinado",
+            -100 => "Error no determinado",
+            _ => "Formato en campo/s incorrecta; Faltan campos obligatorios"
+        };
+    }
 }
 
 public class VerifyReceiptRequest
@@ -1046,4 +1464,21 @@ public class VerifyReceiptRequest
 public class UpdateOrderPaymentMethodRequest
 {
     public string PaymentMethod { get; set; } = string.Empty;
+}
+
+public class POSTransactionRequest
+{
+    public decimal Amount { get; set; }
+}
+
+public class POSVoidRequest
+{
+    public decimal Amount { get; set; }
+}
+
+public class POSQueryRequest
+{
+    public long? TransactionId { get; set; }
+    public string? STransactionId { get; set; }
+    public string TransactionDateTime { get; set; } = string.Empty;
 }

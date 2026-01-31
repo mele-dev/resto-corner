@@ -72,6 +72,11 @@ export default function TablesViewPage() {
   const [totalAmount, setTotalAmount] = useState(0);
   const [paymentProcessed, setPaymentProcessed] = useState(false);
   
+  // POS waiting modal state
+  const [isPOSWaitingModalOpen, setIsPOSWaitingModalOpen] = useState(false);
+  const [posStatusMessage, setPosStatusMessage] = useState<string>('Esperando respuesta del POS...');
+  const [posPollingAttempt, setPosPollingAttempt] = useState<number>(0);
+  
   // Estado para almacenar los tiempos de demora de cada mesa
   const [tableDelays, setTableDelays] = useState<Record<number, { delay: string; isUrgent: boolean; createdAt: string }>>({});
   // Estado para forzar actualización en tiempo real (cada segundo)
@@ -1118,52 +1123,174 @@ export default function TablesViewPage() {
     setTableConsumptionOrders([]);
   };
 
-  const enviarTransaccionPOS = async (amount: number) => {
+  // Mapeo de códigos de respuesta del POS
+  const getPOSCodeMessage = (statusCode: number): string => {
+    const codigos: Record<string, string> = {
+      "0": "Resultado OK",
+      "100": "Resultado OK",
+      "101": "Número de pinpad inválido",
+      "102": "Número de sucursal inválido",
+      "103": "Número de caja inválido",
+      "104": "Fecha de la transacción inválida",
+      "105": "Monto no válido",
+      "106": "Cantidad de cuotas inválidas",
+      "107": "Número de plan inválido",
+      "108": "Número de factura inválido",
+      "109": "Moneda ingresada no válida",
+      "110": "Número de ticket inválido",
+      "111": "No existe transacción",
+      "112": "Transacción finalizada",
+      "113": "Identificador de sistema inválido",
+      "10": "Se debe consultar por la transacción",
+      "11": "Aguardando por operación en el pinpad",
+      "12": "Tiempo de transacción excedido, envíe datos nuevamente",
+      "999": "Error no determinado",
+      "-100": "Error no determinado"
+    };
+    return codigos[statusCode.toString()] || `Código desconocido: ${statusCode}`;
+  };
+
+  const enviarTransaccionPOS = async (amount: number): Promise<{ success: boolean; message: string }> => {
     try {
-      const urlString = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
-      const transactionDateTime = `${year}${month}${day}${hours}${minutes}${seconds}${milliseconds}`;
-      const amountInCents = Math.round(amount * 100).toString();
+      console.log('🚀 [TablesView] Iniciando envío de transacción POS:', { amount });
       
-      const json = {
-        "PosID": "1",
-        "SystemId": "1",
-        "Branch": "1",
-        "ClientAppId": "1",
-        "UserId": "1",
-        "TransactionDateTimeyyyyMMddHHmmssSSS": transactionDateTime,
-        "Amount": amountInCents,
-        "Quotas": "5",
-        "Plan": "0",
-        "Currency": "858",
-        "TaxRefund": "1",
-        "TaxableAmount": "1194400",
-        "InvoiceAmount": "1420000"
-      };
-
-      const response = await fetch(urlString, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=UTF-8',
-        },
-        body: JSON.stringify(json),
+      // Abrir modal de espera del POS
+      setIsPOSWaitingModalOpen(true);
+      setPosStatusMessage('Esperando respuesta del POS...');
+      setPosPollingAttempt(0);
+      
+      // Llamar al endpoint del backend que maneja la transacción POS
+      const response = await api.sendPOSTransaction(amount);
+      
+      console.log('📋 [TablesView] Respuesta recibida del POST al POS:', {
+        response,
+        transactionId: response.transactionId,
+        sTransactionId: response.sTransactionId,
+        transactionDateTime: response.transactionDateTime
       });
-
-      if (!response.ok) {
-        throw new Error(`Error en respuesta del POS: ${response.status}`);
+      
+      if (!response.transactionId && !response.sTransactionId) {
+        console.error('❌ [TablesView] No se recibió TransactionId de la transacción POS');
+        setIsPOSWaitingModalOpen(false);
+        throw new Error('No se recibió TransactionId de la transacción POS');
       }
 
-      return await response.json();
+      if (!response.transactionDateTime) {
+        console.error('❌ [TablesView] No se recibió TransactionDateTime de la transacción POS');
+        setIsPOSWaitingModalOpen(false);
+        throw new Error('No se recibió TransactionDateTime de la transacción POS');
+      }
+
+      const transactionId = response.transactionId || response.sTransactionId!;
+      const transactionDateTime = response.transactionDateTime;
+
+      console.log('🔄 [TablesView] Iniciando polling para transacción:', {
+        transactionId,
+        transactionDateTime
+      });
+
+      // Iniciar polling para consultar el estado de la transacción cada 2 segundos
+      return new Promise((resolve, reject) => {
+        const minAttempts = 5; // Mínimo 5 intentos antes de dar por perdida
+        const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
+        let attempts = 0;
+        
+        const pollInterval = setInterval(async () => {
+          attempts++;
+          setPosPollingAttempt(attempts);
+          console.log(`🔄 [TablesView] Polling intento ${attempts}/${maxAttempts} para transacción ${transactionId}`);
+          
+          try {
+            const queryResponse = await api.queryPOSTransaction(transactionId, transactionDateTime);
+            
+            console.log(`📊 [TablesView] Estado del polling (intento ${attempts}):`, {
+              isCompleted: queryResponse.isCompleted,
+              isPending: queryResponse.isPending,
+              isError: queryResponse.isError,
+              statusMessage: queryResponse.statusMessage,
+              statusCode: queryResponse.statusCode
+            });
+            
+            // Obtener mensaje del código
+            const codeMessage = getPOSCodeMessage(queryResponse.statusCode);
+            const fullMessage = `${codeMessage} (Código: ${queryResponse.statusCode})`;
+            setPosStatusMessage(fullMessage);
+            
+            // Manejar código 12 (tiempo excedido) - continuar polling
+            if (queryResponse.statusCode === 12) {
+              console.warn('⚠️ [TablesView] Tiempo de transacción excedido, continuando polling...');
+              setPosStatusMessage(`⚠️ ${fullMessage} - Continuando consulta...`);
+              
+              // Si ya hicimos al menos 5 intentos y sigue siendo código 12, mostrar error
+              if (attempts >= minAttempts) {
+                console.error('❌ [TablesView] Tiempo excedido después de múltiples intentos');
+                clearInterval(pollInterval);
+                setIsPOSWaitingModalOpen(false);
+                showToast(`Tiempo de transacción excedido. ${fullMessage}`, 'error');
+                reject(new Error(`Tiempo de transacción excedido: ${fullMessage}`));
+                return;
+              }
+              // Continuar consultando
+              return;
+            }
+            
+            if (queryResponse.isCompleted) {
+              console.log('✅ [TablesView] Transacción POS completada exitosamente');
+              clearInterval(pollInterval);
+              setIsPOSWaitingModalOpen(false);
+              showToast(`Transacción POS completada: ${fullMessage}`, 'success');
+              resolve({ 
+                success: true, 
+                message: `Transacción POS completada: ${fullMessage}` 
+              });
+            } else if (queryResponse.isError) {
+              console.error('❌ [TablesView] Transacción POS rechazada:', queryResponse.statusMessage);
+              clearInterval(pollInterval);
+              setIsPOSWaitingModalOpen(false);
+              showToast(`Transacción POS rechazada: ${fullMessage}`, 'error');
+              reject(new Error(`Transacción POS rechazada: ${fullMessage}`));
+            } else if (queryResponse.isPending || queryResponse.statusCode === 10 || queryResponse.statusCode === 11) {
+              // Códigos 10 o 11 indican que debe continuar consultando
+              setPosStatusMessage(`Esperando respuesta del POS... (${fullMessage})`);
+              
+              // Continuar consultando
+              if (attempts >= maxAttempts) {
+                console.error('⏱️ [TablesView] Tiempo de espera excedido para la transacción POS');
+                clearInterval(pollInterval);
+                setIsPOSWaitingModalOpen(false);
+                showToast('Tiempo de espera excedido para la transacción POS', 'error');
+                reject(new Error('Tiempo de espera excedido para la transacción POS'));
+              }
+            } else {
+              // Estado desconocido, continuar consultando si no hemos alcanzado el mínimo
+              if (attempts < minAttempts) {
+                setPosStatusMessage(`Consultando estado... (${fullMessage})`);
+                return;
+              }
+              
+              // Después del mínimo de intentos, si sigue sin resolverse, dar error
+              if (attempts >= maxAttempts) {
+                console.error('⏱️ [TablesView] Tiempo de espera excedido para la transacción POS (estado desconocido)');
+                clearInterval(pollInterval);
+                setIsPOSWaitingModalOpen(false);
+                showToast(`Tiempo de espera excedido. Estado: ${fullMessage}`, 'error');
+                reject(new Error(`Tiempo de espera excedido para la transacción POS: ${fullMessage}`));
+              }
+            }
+          } catch (error: any) {
+            console.error('❌ [TablesView] Error al consultar estado de transacción POS:', error);
+            clearInterval(pollInterval);
+            setIsPOSWaitingModalOpen(false);
+            showToast(`Error al consultar estado: ${error.message}`, 'error');
+            reject(new Error(`Error al consultar estado de transacción POS: ${error.message}`));
+          }
+        }, 2000); // Consultar cada 2 segundos
+      });
     } catch (error: any) {
-      console.error('Error al enviar transacción al POS:', error);
-      throw new Error(`Error al comunicarse con el POS: ${error.message}`);
+      console.error('❌ [TablesView] Error al enviar transacción POS:', error);
+      setIsPOSWaitingModalOpen(false);
+      showToast(`Error al enviar transacción POS: ${error.message}`, 'error');
+      throw new Error(`Error al enviar transacción POS: ${error.message}`);
     }
   };
 
@@ -1178,9 +1305,10 @@ export default function TablesViewPage() {
       if (selectedPaymentMethod.toLowerCase() === 'pos') {
         try {
           await enviarTransaccionPOS(totalAmount);
-          showToast('Transacción POS enviada exitosamente', 'success');
+          // El toast ya se muestra dentro de enviarTransaccionPOS
         } catch (error: any) {
-          showToast(`Error al enviar transacción POS: ${error.message}`, 'error');
+          // El modal y toast ya se manejan dentro de enviarTransaccionPOS
+          setIsPOSWaitingModalOpen(false);
           return;
         }
       }
@@ -2588,6 +2716,33 @@ export default function TablesViewPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* POS Waiting Modal */}
+      <Modal
+        isOpen={isPOSWaitingModalOpen}
+        onClose={() => {}} // No permitir cerrar manualmente mientras espera
+        title="Esperando respuesta del POS"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-col items-center justify-center py-6">
+            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-lg font-semibold text-gray-700 mb-2">
+              {posStatusMessage}
+            </p>
+            {posPollingAttempt > 0 && (
+              <p className="text-sm text-gray-500">
+                Intento {posPollingAttempt} de consulta...
+              </p>
+            )}
+          </div>
+          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+            <p className="text-sm text-blue-800">
+              Por favor, espere mientras se procesa la transacción en el terminal POS.
+            </p>
+          </div>
+        </div>
       </Modal>
     </div>
   );
