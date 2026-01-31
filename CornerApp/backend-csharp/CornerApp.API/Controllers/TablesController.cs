@@ -769,7 +769,7 @@ public class TablesController : ControllerBase
                 CustomerAddress = string.Empty,
                 Total = total,
                 PaymentMethod = paymentMethodName,
-                Status = OrderConstants.STATUS_PENDING,
+                Status = OrderConstants.STATUS_PREPARING, // Ir directamente a cocina
                 EstimatedDeliveryMinutes = 30, // Tiempo estimado por defecto para mesas
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -1002,7 +1002,7 @@ public class TablesController : ControllerBase
                 CustomerAddress = string.Empty,
                 Total = total,
                 PaymentMethod = paymentMethodName,
-                Status = OrderConstants.STATUS_PENDING,
+                Status = OrderConstants.STATUS_PREPARING, // Ir directamente a cocina
                 EstimatedDeliveryMinutes = 30, // Tiempo estimado por defecto para mesas
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,

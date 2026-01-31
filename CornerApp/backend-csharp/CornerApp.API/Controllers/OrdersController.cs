@@ -633,7 +633,7 @@ public class OrdersController : ControllerBase
                 CustomerLongitude = customerLongitude, // Guardar coordenadas geocodificadas
                 Total = total,
                 PaymentMethod = paymentMethodName,
-                Status = OrderConstants.STATUS_PENDING,
+                Status = OrderConstants.STATUS_PREPARING, // Ir directamente a cocina
                 EstimatedDeliveryMinutes = estimatedMinutes,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,

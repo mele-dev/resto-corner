@@ -10,16 +10,11 @@ import {
   Info,
   CreditCard,
   Users,
-  ClipboardList,
   History,
-  Store,
-  MapPin,
   BarChart3,
   ChefHat,
   LogOut,
-  Gift,
   CheckCircle,
-  Mail,
   Table as TableIcon,
   Shield,
   MoreHorizontal,
@@ -37,7 +32,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   // Activos: muestra todos los pedidos (tanto de salón como de delivery)
-  { path: '/admin/active-orders', label: 'Activos', icon: ClipboardList },
+  // { path: '/admin/active-orders', label: 'Activos', icon: ClipboardList }, // Temporalmente deshabilitado - pedidos van directo a cocina
   { path: '/admin/payments', label: 'Pagos', icon: CheckCircle },
   { path: '/admin/kitchen', label: 'Cocina', icon: ChefHat },
   { path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
@@ -66,8 +61,8 @@ const navItems: NavItem[] = [
       { path: '/admin/customers', label: 'Clientes', icon: Users },
       { path: '/admin/users', label: 'Usuarios', icon: Shield },
       { path: '/admin/settings/payments', label: 'Métodos de Pago', icon: CreditCard },
-      { path: '/admin/settings/email', label: 'Configuración de Email', icon: Mail },
-      { path: '/admin/settings/rewards', label: 'Premios', icon: Gift },
+      //{ path: '/admin/settings/email', label: 'Configuración de Email', icon: Mail },
+     // { path: '/admin/settings/rewards', label: 'Premios', icon: Gift },
       { path: '/admin/settings/info', label: 'Información', icon: Info },
     ]
   },
@@ -79,7 +74,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [pendingReceiptsCount, setPendingReceiptsCount] = useState(0); // Para Pagos (comprobantes pendientes)
-  const [activeOrdersCount, setActiveOrdersCount] = useState(0); // Para Activos (pedidos activos)
+  // const [activeOrdersCount, setActiveOrdersCount] = useState(0); // Para Activos (pedidos activos) - Temporalmente deshabilitado
   const [kitchenOrdersCount, setKitchenOrdersCount] = useState(0); // Para Cocina (pedidos en preparing)
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -102,12 +97,12 @@ export default function Navbar() {
         const stats = await api.getOrderStats();
         setPendingReceiptsCount(stats.pendingReceiptsCount || 0);
 
-        // Contador para Activos: total de pedidos activos (pending, preparing, delivering)
+        // Contador para Activos: total de pedidos activos (pending, preparing, delivering) - Temporalmente deshabilitado
         const activeOrders = await api.getActiveOrders();
         const activeOrdersArray = Array.isArray(activeOrders)
           ? activeOrders
           : (activeOrders as any)?.data || [];
-        setActiveOrdersCount(activeOrdersArray.length);
+        // setActiveOrdersCount(activeOrdersArray.length); // Temporalmente deshabilitado
 
         // Contador para Cocina: pedidos en estado "preparing"
         const kitchenOrders = activeOrdersArray.filter((o: any) => o.status === 'preparing');
@@ -233,7 +228,7 @@ export default function Navbar() {
                       {pendingReceiptsCount}
                     </span>
                   )}
-                  {item.path === '/admin/active-orders' && activeOrdersCount > 0 && (
+                  {/* {item.path === '/admin/active-orders' && activeOrdersCount > 0 && (
                     <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
                       isActive(item.path)
                         ? 'bg-white text-primary-500'
@@ -241,7 +236,7 @@ export default function Navbar() {
                     }`}>
                       {activeOrdersCount}
                     </span>
-                  )}
+                  )} */}
                   {item.path === '/admin/kitchen' && kitchenOrdersCount > 0 && (
                     <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
                       isActive(item.path)
@@ -360,7 +355,7 @@ export default function Navbar() {
                     {pendingReceiptsCount}
                   </span>
                 )}
-                {item.path === '/admin/active-orders' && activeOrdersCount > 0 && (
+                {/* {item.path === '/admin/active-orders' && activeOrdersCount > 0 && (
                   <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold ${
                     isActive(item.path)
                       ? 'bg-white text-primary-500'
@@ -368,7 +363,7 @@ export default function Navbar() {
                   }`}>
                     {activeOrdersCount}
                   </span>
-                )}
+                )} */}
                 {item.path === '/admin/kitchen' && kitchenOrdersCount > 0 && (
                   <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold ${
                     isActive(item.path)

@@ -26,7 +26,7 @@ public class Order
     
     public decimal Total { get; set; }
     public string PaymentMethod { get; set; } = PaymentConstants.METHOD_CASH;
-    public string Status { get; set; } = OrderConstants.STATUS_PENDING;
+    public string Status { get; set; } = OrderConstants.STATUS_PREPARING; // Por defecto ir directamente a cocina
     public int EstimatedDeliveryMinutes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
