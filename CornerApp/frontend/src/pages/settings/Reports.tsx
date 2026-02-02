@@ -16,7 +16,9 @@ import {
   FileSpreadsheet,
   Award,
   RotateCcw,
-  AlertCircle
+  AlertCircle,
+  Receipt,
+  CheckCircle2
 } from 'lucide-react';
 import {
   LineChart,
@@ -140,6 +142,10 @@ export default function ReportsPage() {
   const [isCashRegisterMovementsModalOpen, setIsCashRegisterMovementsModalOpen] = useState(false);
   const [cashRegisterMovements, setCashRegisterMovements] = useState<any>(null);
   const [loadingMovements, setLoadingMovements] = useState(false);
+  
+  // Refund Ticket Modal
+  const [isRefundTicketModalOpen, setIsRefundTicketModalOpen] = useState(false);
+  const [selectedRefundOrder, setSelectedRefundOrder] = useState<any>(null);
 
   useEffect(() => {
     loadReports();
@@ -202,13 +208,37 @@ export default function ReportsPage() {
     }
 
     try {
-      // Usar el TransactionDateTime de la transacción original si está disponible
-      await api.sendPOSVoid(order.total, order.posTransactionDateTime);
-      showToast('Devolución POS procesada exitosamente', 'success');
-      // Recargar movimientos para actualizar la vista
-      if (cashRegisterMovements?.cashRegister?.id) {
-        const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
-        setCashRegisterMovements(movements);
+      // Extraer TicketNumber del TransactionId (últimos 4 dígitos)
+      let ticketNumber: string | undefined;
+      if (order.posTransactionIdString) {
+        const idStr = order.posTransactionIdString;
+        ticketNumber = idStr.length >= 4 
+          ? idStr.substring(idStr.length - 4).padStart(4, '0')
+          : idStr.padStart(4, '0');
+      } else if (order.posTransactionId) {
+        const idStr = order.posTransactionId.toString();
+        ticketNumber = idStr.length >= 4 
+          ? idStr.substring(idStr.length - 4).padStart(4, '0')
+          : idStr.padStart(4, '0');
+      }
+
+      // Enviar devolución con toda la información disponible
+      const result = await api.sendPOSVoid(
+        order.total, 
+        order.posTransactionDateTime,
+        order.id, // OrderId para que el backend pueda obtener más información
+        ticketNumber
+      );
+
+      if (result.success) {
+        showToast('Devolución POS procesada exitosamente', 'success');
+        // Recargar movimientos para actualizar la vista
+        if (cashRegisterMovements?.cashRegister?.id) {
+          const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
+          setCashRegisterMovements(movements);
+        }
+      } else {
+        showToast(`Devolución POS: ${result.message}`, result.responseCode === -100 ? 'error' : 'warning');
       }
     } catch (error: any) {
       showToast(`Error al procesar devolución POS: ${error.message}`, 'error');
@@ -1010,14 +1040,35 @@ export default function ReportsPage() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             {order.paymentMethod?.toLowerCase() === 'pos' && (order.posTransactionId || order.posTransactionIdString) ? (
-                              <button
-                                onClick={() => handlePOSVoid(order)}
-                                className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 mx-auto"
-                                title="Hacer devolución de transacción POS"
-                              >
-                                <RotateCcw size={14} />
-                                Devolver
-                              </button>
+                              <div className="flex items-center justify-center gap-2">
+                                {order.posRefundTransactionId || order.posRefundTransactionIdString ? (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedRefundOrder(order);
+                                        setIsRefundTicketModalOpen(true);
+                                      }}
+                                      className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5"
+                                      title="Ver ticket de devolución"
+                                    >
+                                      <Receipt size={14} />
+                                      Ver Ticket
+                                    </button>
+                                    <span className="text-green-600 text-xs flex items-center gap-1" title="Devolución procesada">
+                                      <CheckCircle2 size={14} />
+                                    </span>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => handlePOSVoid(order)}
+                                    className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5"
+                                    title="Hacer devolución de transacción POS"
+                                  >
+                                    <RotateCcw size={14} />
+                                    Devolver
+                                  </button>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-gray-400 text-xs">-</span>
                             )}
@@ -1033,6 +1084,124 @@ export default function ReportsPage() {
         ) : (
           <div className="text-center py-8 text-gray-500">
             No se pudieron cargar los movimientos
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de Ticket de Devolución */}
+      <Modal
+        isOpen={isRefundTicketModalOpen}
+        onClose={() => {
+          setIsRefundTicketModalOpen(false);
+          setSelectedRefundOrder(null);
+        }}
+        title="Ticket de Devolución POS"
+        size="lg"
+      >
+        {selectedRefundOrder && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <h3 className="font-semibold text-gray-800 mb-3">Información del Pedido Original</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-600">Pedido #:</span>
+                  <span className="ml-2 font-medium">{selectedRefundOrder.id}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Monto:</span>
+                  <span className="ml-2 font-medium">{formatCurrency(selectedRefundOrder.total)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Fecha del Pedido:</span>
+                  <span className="ml-2 font-medium">
+                    {new Date(selectedRefundOrder.createdAt).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Transacción Original:</span>
+                  <span className="ml-2 font-medium">
+                    {selectedRefundOrder.posTransactionId || selectedRefundOrder.posTransactionIdString || '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 rounded-lg p-4 space-y-3 border border-blue-200">
+              <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                <CheckCircle2 size={18} />
+                Información de la Devolución
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-600">Transaction ID:</span>
+                  <span className="ml-2 font-medium text-blue-700">
+                    {selectedRefundOrder.posRefundTransactionId || selectedRefundOrder.posRefundTransactionIdString || '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Fecha de Devolución:</span>
+                  <span className="ml-2 font-medium">
+                    {selectedRefundOrder.posRefundedAt 
+                      ? new Date(selectedRefundOrder.posRefundedAt).toLocaleString('es-ES')
+                      : selectedRefundOrder.posRefundTransactionDateTime 
+                        ? (() => {
+                            try {
+                              const dt = selectedRefundOrder.posRefundTransactionDateTime;
+                              if (dt.length >= 14) {
+                                const year = dt.substring(0, 4);
+                                const month = dt.substring(4, 6);
+                                const day = dt.substring(6, 8);
+                                const hour = dt.substring(8, 10);
+                                const minute = dt.substring(10, 12);
+                                const second = dt.substring(12, 14);
+                                return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
+                              }
+                              return dt;
+                            } catch {
+                              return selectedRefundOrder.posRefundTransactionDateTime;
+                            }
+                          })()
+                        : '-'}
+                  </span>
+                </div>
+                {selectedRefundOrder.posRefundTransactionDateTime && (
+                  <div className="col-span-2">
+                    <span className="text-gray-600">Transaction DateTime:</span>
+                    <span className="ml-2 font-mono text-xs">
+                      {selectedRefundOrder.posRefundTransactionDateTime}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {selectedRefundOrder.posRefundResponse && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-gray-800 mb-2 text-sm">Respuesta Completa del POS</h3>
+                <pre className="text-xs bg-white p-3 rounded border overflow-auto max-h-40 font-mono">
+                  {(() => {
+                    try {
+                      const response = JSON.parse(selectedRefundOrder.posRefundResponse);
+                      return JSON.stringify(response, null, 2);
+                    } catch {
+                      return selectedRefundOrder.posRefundResponse;
+                    }
+                  })()}
+                </pre>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <button
+                onClick={() => {
+                  setIsRefundTicketModalOpen(false);
+                  setSelectedRefundOrder(null);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         )}
       </Modal>

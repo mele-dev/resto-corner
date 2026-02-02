@@ -1168,6 +1168,7 @@ export default function TablesViewPage() {
       
       // Llamar al endpoint del backend que maneja la transacción POS
       const response = await api.sendPOSTransaction(amount);
+      // Aca mando la transaccion al POS 
       
       console.log('📋 [TablesView] Respuesta recibida del POST al POS:', {
         response,
@@ -1230,7 +1231,7 @@ export default function TablesViewPage() {
               code12Attempts++; // Incrementar contador de código 12
               console.warn(`⚠️ [TablesView] Tiempo de transacción excedido (intento ${code12Attempts}/${maxCode12Attempts}), continuando polling...`);
               setPosStatusMessage(`⚠️ ${fullMessage} - Continuando consulta (${code12Attempts}/${maxCode12Attempts})...`);
-              
+             
               // Si ya hicimos 5 intentos adicionales con código 12, mostrar error
               if (code12Attempts >= maxCode12Attempts) {
                 console.error('❌ [TablesView] Tiempo excedido después de 5 intentos adicionales con código 12');

@@ -43,7 +43,7 @@ public class AdminOrdersController : ControllerBase
     private const string POS_ID = "22224628";
     private const string SYSTEM_ID = "cb67e3e5-3ab9-3a6b-960b-2b874b68ab3c";
     private const string POS_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
-    private const string POS_VOID_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseVoidByTicket";
+    private const string POS_VOID_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseRefund";
     private const string POS_QUERY_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseQuery";
 
     public AdminOrdersController(
@@ -1219,39 +1219,150 @@ public class AdminOrdersController : ControllerBase
                 return BadRequest(new { error = "El monto debe ser mayor a 0" });
             }
 
-            // Usar el TransactionDateTime de la transacción original si se proporciona, sino usar la fecha actual
-            string transactionDateTime;
-            if (!string.IsNullOrWhiteSpace(request.TransactionDateTime))
+            // Obtener información del pedido original si se proporciona OrderId
+            Order? originalOrder = null;
+            if (request.OrderId.HasValue)
             {
-                transactionDateTime = request.TransactionDateTime;
+                originalOrder = await _context.Orders
+                    .FirstOrDefaultAsync(o => o.Id == request.OrderId.Value);
+                
+                if (originalOrder == null)
+                {
+                    return BadRequest(new { error = "Pedido no encontrado" });
+                }
+
+                // Verificar si ya existe una devolución para este pedido
+                if (originalOrder.POSRefundTransactionId != null || !string.IsNullOrWhiteSpace(originalOrder.POSRefundTransactionIdString))
+                {
+                    return BadRequest(new { 
+                        error = "Este pedido ya tiene una devolución procesada",
+                        refundTransactionId = originalOrder.POSRefundTransactionId ?? (long.TryParse(originalOrder.POSRefundTransactionIdString, out var parsedId) ? parsedId : null),
+                        refundTransactionIdString = originalOrder.POSRefundTransactionIdString,
+                        refundedAt = originalOrder.POSRefundedAt
+                    });
+                }
+            }
+
+            // Fecha/hora de la devolución (actual) - REQUERIDO: TransactionDateTimeyyyyMMddHHmmssSSS
+            var now = DateTime.UtcNow;
+            var refundTransactionDateTime = now.ToString("yyyyMMddHHmmssfff");
+
+            // Fecha de la transacción original - REQUERIDO: OriginalTransactionDateyyMMdd (formato yyMMdd - 6 caracteres)
+            string originalTransactionDate;
+            if (!string.IsNullOrWhiteSpace(request.OriginalTransactionDateTime))
+            {
+                // Si viene en formato yyyyMMddHHmmssSSS, extraer solo yyMMdd
+                if (request.OriginalTransactionDateTime.Length >= 8)
+                {
+                    // Extraer los primeros 8 caracteres (yyyyMMdd) y luego tomar los últimos 6 (yyMMdd)
+                    var yyyyMMdd = request.OriginalTransactionDateTime.Substring(0, 8);
+                    originalTransactionDate = yyyyMMdd.Substring(2, 6); // yyMMdd
+                }
+                else if (request.OriginalTransactionDateTime.Length == 6)
+                {
+                    // Ya viene en formato yyMMdd
+                    originalTransactionDate = request.OriginalTransactionDateTime;
+                }
+                else
+                {
+                    // Si no tiene el formato correcto, usar la fecha del pedido
+                    var orderDate = originalOrder?.CreatedAt ?? DateTime.UtcNow;
+                    originalTransactionDate = orderDate.ToString("yyMMdd");
+                }
+            }
+            else if (originalOrder?.POSTransactionDateTime != null)
+            {
+                // Usar la fecha de la transacción original del pedido
+                var originalDateTime = originalOrder.POSTransactionDateTime;
+                if (originalDateTime.Length >= 8)
+                {
+                    var yyyyMMdd = originalDateTime.Substring(0, 8);
+                    originalTransactionDate = yyyyMMdd.Substring(2, 6); // yyMMdd
+                }
+                else
+                {
+                    var orderDate = originalOrder.CreatedAt;
+                    originalTransactionDate = orderDate.ToString("yyMMdd");
+                }
             }
             else
             {
-                // Formatear fecha como yyyyMMddHHmmssSSS
-                var now = DateTime.UtcNow;
-                transactionDateTime = now.ToString("yyyyMMddHHmmssfff");
+                // Si no hay información, usar la fecha actual menos 1 día (asumiendo que la transacción fue reciente)
+                var yesterday = DateTime.UtcNow.AddDays(-1);
+                originalTransactionDate = yesterday.ToString("yyMMdd");
+            }
+
+            // TicketNumber - REQUERIDO: Número de ticket de la transacción original
+            string ticketNumber;
+            if (!string.IsNullOrWhiteSpace(request.TicketNumber))
+            {
+                ticketNumber = request.TicketNumber;
+            }
+            else if (originalOrder?.POSTransactionIdString != null)
+            {
+                // Usar los últimos 4 dígitos del TransactionId como TicketNumber
+                var transactionIdStr = originalOrder.POSTransactionIdString;
+                if (transactionIdStr.Length >= 4)
+                {
+                    ticketNumber = transactionIdStr.Substring(transactionIdStr.Length - 4).PadLeft(4, '0');
+                }
+                else
+                {
+                    ticketNumber = transactionIdStr.PadLeft(4, '0');
+                }
+            }
+            else if (originalOrder?.POSTransactionId != null)
+            {
+                // Usar los últimos 4 dígitos del TransactionId como TicketNumber
+                var transactionIdStr = originalOrder.POSTransactionId.ToString();
+                if (transactionIdStr.Length >= 4)
+                {
+                    ticketNumber = transactionIdStr.Substring(transactionIdStr.Length - 4).PadLeft(4, '0');
+                }
+                else
+                {
+                    ticketNumber = transactionIdStr.PadLeft(4, '0');
+                }
+            }
+            else
+            {
+                return BadRequest(new { error = "TicketNumber es requerido. Proporcione TicketNumber o OrderId con información de transacción POS." });
             }
 
             // Convertir el monto: si es 1120, debe ser "112000" (multiplicar por 100)
             var amountFormatted = ((long)Math.Round(request.Amount * 100)).ToString();
 
-            // Crear el JSON exactamente como lo hace el código Java para devoluciones
-            // Construir el JSON manualmente para mantener los nombres exactos
+            // Calcular TaxableAmount e InvoiceAmount
+            // Si no se proporcionan, usar el monto como base (asumiendo IVA del 22%)
+            var taxableAmount = request.TaxableAmount.HasValue 
+                ? ((long)Math.Round(request.TaxableAmount.Value * 100)).ToString()
+                : amountFormatted; // Por defecto usar el mismo monto
+            
+            var invoiceAmount = request.InvoiceAmount.HasValue
+                ? ((long)Math.Round(request.InvoiceAmount.Value * 100)).ToString()
+                : amountFormatted; // Por defecto usar el mismo monto
+
+            // Crear el JSON con todos los campos requeridos según la documentación
+            // Formato consistente con el ejemplo Java que funciona
             var jsonContent = $@"{{
   ""PosID"": ""{POS_ID}"",
   ""SystemId"": ""{SYSTEM_ID}"",
   ""Branch"": ""1"",
   ""ClientAppId"": ""1"",
   ""UserId"": ""1"",
-  ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{transactionDateTime}"",
+  ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{refundTransactionDateTime}"",
+  ""OriginalTransactionDateyyMMdd"": ""{originalTransactionDate}"",
   ""Amount"": ""{amountFormatted}"",
   ""Quotas"": ""1"",
   ""Plan"": ""0"",
   ""Currency"": ""858"",
   ""TaxRefund"": ""1"",
-  ""TaxableAmount"": ""1194400"",
-  ""InvoiceAmount"": ""1420000""
+  ""TaxableAmount"": ""{taxableAmount}"",
+  ""InvoiceAmount"": ""{invoiceAmount}"",
+  ""TicketNumber"": ""{ticketNumber}""
 }}";
+
+            _logger.LogInformation("Enviando devolución POS. JSON: {Json}", jsonContent);
 
             var httpClient = _httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromSeconds(30);
@@ -1275,12 +1386,96 @@ public class AdminOrdersController : ControllerBase
                 });
             }
 
-            _logger.LogInformation("Devolución POS enviada exitosamente. Monto: {Amount}, Response: {Response}", 
-                request.Amount, responseContent);
+            // Parsear la respuesta para verificar el código y extraer información
+            long? refundTransactionId = null;
+            string? refundTransactionIdString = null;
+            int? responseCode = null;
+            bool isSuccess = false;
+
+            try
+            {
+                var responseJson = JsonSerializer.Deserialize<JsonElement>(responseContent);
+                if (responseJson.TryGetProperty("ResponseCode", out var responseCodeElement))
+                {
+                    responseCode = responseCodeElement.GetInt32();
+                    var statusMessage = GetPOSStatusCodeMessage(responseCode.Value);
+                    
+                    _logger.LogInformation("Devolución POS enviada. Monto: {Amount}, ResponseCode: {ResponseCode}, Mensaje: {Message}, Response: {Response}", 
+                        request.Amount, responseCode, statusMessage, responseContent);
+
+                    // Solo considerar exitoso si el código es 0 o 100
+                    isSuccess = responseCode == 0 || responseCode == 100;
+
+                    if (isSuccess)
+                    {
+                        // Extraer TransactionId de la respuesta
+                        if (responseJson.TryGetProperty("TransactionId", out var transactionIdElement))
+                        {
+                            if (transactionIdElement.ValueKind == JsonValueKind.Number)
+                            {
+                                refundTransactionId = transactionIdElement.GetInt64();
+                                refundTransactionIdString = refundTransactionId.Value.ToString();
+                            }
+                            else if (transactionIdElement.ValueKind == JsonValueKind.String)
+                            {
+                                refundTransactionIdString = transactionIdElement.GetString();
+                                if (long.TryParse(refundTransactionIdString, out var parsedId))
+                                {
+                                    refundTransactionId = parsedId;
+                                }
+                            }
+                        }
+                        
+                        // Si no se encontró TransactionId, buscar STransactionId
+                        if (refundTransactionId == null && responseJson.TryGetProperty("STransactionId", out var sTransactionIdElement))
+                        {
+                            refundTransactionIdString = sTransactionIdElement.GetString();
+                            if (!string.IsNullOrEmpty(refundTransactionIdString) && long.TryParse(refundTransactionIdString, out var parsedId))
+                            {
+                                refundTransactionId = parsedId;
+                            }
+                        }
+
+                        // Guardar información de la devolución en el pedido si existe
+                        if (originalOrder != null)
+                        {
+                            originalOrder.POSRefundTransactionId = refundTransactionId;
+                            originalOrder.POSRefundTransactionIdString = refundTransactionIdString;
+                            originalOrder.POSRefundTransactionDateTime = refundTransactionDateTime;
+                            originalOrder.POSRefundResponse = responseContent;
+                            originalOrder.POSRefundedAt = DateTime.UtcNow;
+                            originalOrder.UpdatedAt = DateTime.UtcNow;
+
+                            await _context.SaveChangesAsync();
+                            _logger.LogInformation("Información de devolución guardada en pedido {OrderId}", originalOrder.Id);
+                        }
+                    }
+                    else
+                    {
+                        return Ok(new { 
+                            success = false, 
+                            message = $"Devolución POS procesada con código: {responseCode} - {statusMessage}",
+                            responseCode = responseCode,
+                            response = responseContent 
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo parsear la respuesta del POS. Response: {Response}", responseContent);
+            }
+
+            _logger.LogInformation("Devolución POS enviada exitosamente. Monto: {Amount}, RefundTransactionId: {RefundTransactionId}, Response: {Response}", 
+                request.Amount, refundTransactionId, responseContent);
 
             return Ok(new { 
                 success = true, 
                 message = "Devolución POS enviada exitosamente",
+                refundTransactionId = refundTransactionId,
+                refundTransactionIdString = refundTransactionIdString,
+                refundTransactionDateTime = refundTransactionDateTime,
+                responseCode = responseCode,
                 response = responseContent 
             });
         }
@@ -1500,7 +1695,11 @@ public class POSTransactionRequest
 public class POSVoidRequest
 {
     public decimal Amount { get; set; }
-    public string? TransactionDateTime { get; set; } // TransactionDateTime de la transacción original
+    public string? OriginalTransactionDateTime { get; set; } // TransactionDateTime de la transacción original (yyyyMMddHHmmssSSS)
+    public string? TicketNumber { get; set; } // Número de ticket de la transacción original (requerido)
+    public int? OrderId { get; set; } // ID del pedido para obtener información de la transacción original
+    public decimal? TaxableAmount { get; set; } // Monto gravado (opcional, se calcula si no se proporciona)
+    public decimal? InvoiceAmount { get; set; } // Monto total de factura (opcional, se calcula si no se proporciona)
 }
 
 public class POSQueryRequest

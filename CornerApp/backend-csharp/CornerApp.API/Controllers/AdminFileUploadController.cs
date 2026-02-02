@@ -19,7 +19,7 @@ public class AdminFileUploadController : ControllerBase
         IFileUploadService fileUploadService,
         ILogger<AdminFileUploadController> logger)
     {
-        _fileUploadService = fileUploadService;
+        _fileUploadService = fileUploadService;    
         _logger = logger;
     }
 

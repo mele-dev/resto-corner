@@ -309,12 +309,31 @@ class ApiClient {
     return response;
   }
 
-  async sendPOSVoid(amount: number, transactionDateTime?: string) {
-    return this.request<{ success: boolean; message: string; response?: string }>('/admin/api/pos/void', {
+  async sendPOSVoid(
+    amount: number, 
+    originalTransactionDateTime?: string,
+    orderId?: number,
+    ticketNumber?: string,
+    taxableAmount?: number,
+    invoiceAmount?: number
+  ) {
+    return this.request<{ 
+      success: boolean; 
+      message: string; 
+      response?: string; 
+      responseCode?: number;
+      refundTransactionId?: number;
+      refundTransactionIdString?: string;
+      refundTransactionDateTime?: string;
+    }>('/admin/api/pos/void', {
       method: 'POST',
       body: { 
         amount,
-        transactionDateTime 
+        originalTransactionDateTime,
+        orderId,
+        ticketNumber,
+        taxableAmount,
+        invoiceAmount
       },
     });
   }
@@ -908,7 +927,12 @@ import type {
   CashRegisterStatus,
   OpenCashRegisterRequest,
   CloseCashRegisterRequest,
-  CashRegistersReport
+  CashRegistersReport,
+  UpdateAdminUserRequest,
+  CreateAdminUserRequest,
+  AdminUser,
+  UpdateEmailConfigRequest,
+  EmailConfig
 } from '../types';
 
 // Export singleton instance

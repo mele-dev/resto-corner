@@ -371,6 +371,12 @@ public class CashRegisterController : ControllerBase
                     posTransactionIdString = o.POSTransactionIdString,
                     posTransactionDateTime = o.POSTransactionDateTime,
                     posResponse = o.POSResponse,
+                    // Información de devolución POS (si aplica)
+                    posRefundTransactionId = o.POSRefundTransactionId,
+                    posRefundTransactionIdString = o.POSRefundTransactionIdString,
+                    posRefundTransactionDateTime = o.POSRefundTransactionDateTime,
+                    posRefundResponse = o.POSRefundResponse,
+                    posRefundedAt = o.POSRefundedAt,
                     items = o.Items.Select(i => new
                     {
                         productName = i.ProductName,

@@ -48,6 +48,13 @@ public class Order
     public string? POSTransactionDateTime { get; set; }
     public string? POSResponse { get; set; } // Respuesta completa del POS para referencia
     
+    // Información de devolución POS (refund/void)
+    public long? POSRefundTransactionId { get; set; }
+    public string? POSRefundTransactionIdString { get; set; }
+    public string? POSRefundTransactionDateTime { get; set; }
+    public string? POSRefundResponse { get; set; } // Respuesta completa de la devolución POS
+    public DateTime? POSRefundedAt { get; set; } // Fecha/hora en que se procesó la devolución
+    
     // Comprobante de transferencia (base64)
     public string? TransferReceiptImage { get; set; }
     public bool IsReceiptVerified { get; set; } = false; // Si el comprobante ha sido verificado
