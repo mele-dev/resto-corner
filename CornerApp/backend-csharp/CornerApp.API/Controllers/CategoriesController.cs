@@ -42,13 +42,15 @@ public class CategoriesController : ControllerBase
         // Usar una clave de cache específica por restaurante
         var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
         
+        // Obtener ETag del cliente una sola vez
+        var clientETag = Request.Headers["If-None-Match"].ToString();
+        
         // Intentar obtener del cache primero
         var cachedCategories = await _cache.GetAsync<List<Category>>(cacheKey);
         if (cachedCategories != null)
         {
             // Generar ETag también para respuestas desde cache
             var cachedETag = ETagHelper.GenerateETag(cachedCategories);
-            var clientETag = Request.Headers["If-None-Match"].ToString();
             if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, cachedETag))
             {
                 _logger.LogInformation("Categorías no han cambiado (ETag match desde cache) para restaurante {RestaurantId}: {Count}", restaurantId, cachedCategories.Count);
@@ -81,7 +83,6 @@ public class CategoriesController : ControllerBase
         var etag = ETagHelper.GenerateETag(categories);
         
         // Verificar si el cliente tiene el mismo ETag (304 Not Modified)
-        var clientETag = Request.Headers["If-None-Match"].ToString();
         if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, etag))
         {
             _logger.LogInformation("Categorías no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId, categories.Count);
