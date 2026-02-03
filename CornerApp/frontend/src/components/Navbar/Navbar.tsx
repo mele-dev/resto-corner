@@ -35,7 +35,9 @@ const navItems: NavItem[] = [
   // { path: '/admin/active-orders', label: 'Activos', icon: ClipboardList }, // Temporalmente deshabilitado - pedidos van directo a cocina
   { path: '/admin/payments', label: 'Pagos', icon: CheckCircle },
   { path: '/admin/kitchen', label: 'Cocina', icon: ChefHat },
-  { path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
+  //{ path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
+  { path: '/admin/tables', label: 'Mesas', icon: TableIcon },
+
   { path: '/admin/repartidores', label: 'Repartidores', icon: Truck },
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   {
@@ -53,7 +55,7 @@ const navItems: NavItem[] = [
     label: 'Config',
     icon: Settings,
     subItems: [
-      { path: '/admin/tables', label: 'Mesas', icon: TableIcon },
+      //{ path: '/admin/tables', label: 'Mesas', icon: TableIcon },
       // { path: '/admin/settings/business', label: 'Datos del Negocio', icon: Store }, // Temporalmente deshabilitado
       // { path: '/admin/settings/delivery-zones', label: 'Zonas de Entrega', icon: MapPin }, // Temporalmente deshabilitado
       { path: '/admin/products', label: 'Productos', icon: Package },

@@ -249,20 +249,22 @@ public class AdminCustomersController : ControllerBase
     }
 
     /// <summary>
-    /// Elimina un cliente
+    /// Elimina un cliente (solo del restaurante del usuario)
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<ActionResult> DeleteCustomer(int id)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var customer = await _context.Customers
-                .Include(c => c.Orders)
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId))
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
 
             if (customer == null)
             {
-                return NotFound(new { error = "Cliente no encontrado" });
+                return NotFound(new { error = "Cliente no encontrado o no pertenece a tu restaurante" });
             }
 
             if (customer.Orders.Any())
@@ -275,7 +277,7 @@ public class AdminCustomersController : ControllerBase
             _context.Customers.Remove(customer);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Cliente eliminado: {CustomerId}", customer.Id);
+            _logger.LogInformation("Cliente eliminado: {CustomerId} del restaurante {RestaurantId}", customer.Id, restaurantId);
 
             return Ok(new { message = "Cliente eliminado" });
         }
@@ -287,19 +289,27 @@ public class AdminCustomersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene estadísticas de clientes
+    /// Obtiene estadísticas de clientes (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("stats")]
     public async Task<ActionResult> GetStats()
     {
-        var totalCustomers = await _context.Customers.CountAsync();
-        var totalPoints = await _context.Customers.SumAsync(c => c.Points);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var totalCustomers = await _context.Customers
+            .Where(c => c.RestaurantId == restaurantId)
+            .CountAsync();
+        var totalPoints = await _context.Customers
+            .Where(c => c.RestaurantId == restaurantId)
+            .SumAsync(c => c.Points);
         var customersWithOrders = await _context.Customers
-            .CountAsync(c => c.Orders.Any());
+            .Where(c => c.RestaurantId == restaurantId)
+            .CountAsync(c => c.Orders.Any(o => o.RestaurantId == restaurantId));
         var topCustomers = await _context.Customers
             .AsNoTracking()
-            .Include(c => c.Orders)
-            .OrderByDescending(c => c.Orders.Where(o => o.Status == OrderConstants.STATUS_COMPLETED).Sum(o => o.Total))
+            .Where(c => c.RestaurantId == restaurantId)
+            .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId))
+            .OrderByDescending(c => c.Orders.Where(o => o.RestaurantId == restaurantId && o.Status == OrderConstants.STATUS_COMPLETED).Sum(o => o.Total))
             .Take(5)
             .Select(c => new
             {
@@ -307,7 +317,7 @@ public class AdminCustomersController : ControllerBase
                 c.Name,
                 c.Points,
                 TotalSpent = c.Orders
-                    .Where(o => o.Status == OrderConstants.STATUS_COMPLETED)
+                    .Where(o => o.RestaurantId == restaurantId && o.Status == OrderConstants.STATUS_COMPLETED)
                     .Sum(o => o.Total)
             })
             .ToListAsync();
