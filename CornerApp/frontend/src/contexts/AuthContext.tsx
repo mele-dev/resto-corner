@@ -2,16 +2,19 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 
 interface User {
   id: number;
+  restaurantId: number | null;
+  restaurantName?: string;
   username: string;
   email: string;
   name: string;
   role: string;
+  isSuperAdmin?: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (restaurantId: number | null, username: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   loading: boolean;
@@ -45,14 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const login = async (restaurantId: number | null, username: string, password: string) => {
     try {
       const response = await fetch('/api/auth/admin/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ 
+          restaurantId: restaurantId || undefined, 
+          username, 
+          password 
+        }),
       });
 
       if (!response.ok) {

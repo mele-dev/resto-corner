@@ -30,30 +30,43 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todas las categorías activas
+    /// Obtiene todas las categorías activas del restaurante del usuario autenticado
     /// </summary>
     [HttpGet]
     [ResponseCache(Duration = 600, Location = ResponseCacheLocation.Any)]
     public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
     {
-        // Invalidar cache temporalmente para forzar recarga con datos limpios (sin Products)
-        // TODO: Remover esta línea después de que el cache se actualice naturalmente (10 minutos)
-        // Esto asegura que después de los cambios, siempre se obtengan datos frescos
-        await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
+        // Obtener RestaurantId del usuario autenticado
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        // Usar una clave de cache específica por restaurante
+        var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
+        
+        // Intentar obtener del cache primero
+        var cachedCategories = await _cache.GetAsync<List<Category>>(cacheKey);
+        if (cachedCategories != null)
+        {
+            _logger.LogInformation("Categorías obtenidas del cache para restaurante {RestaurantId}: {Count}", restaurantId, cachedCategories.Count);
+            return Ok(cachedCategories);
+        }
         
         // Registrar cache miss
-        _metricsService?.RecordCacheMiss(CATEGORIES_CACHE_KEY);
+        _metricsService?.RecordCacheMiss(cacheKey);
 
         // Usar AsNoTracking para operaciones de solo lectura (mejor performance)
         // No incluir Products para evitar problemas de serialización y mejorar performance
+        // Filtrar por RestaurantId para multi-tenant
+        // IMPORTANTE: Solo devolver categorías que tengan RestaurantId válido y coincida con el del usuario
         var categories = await _context.Categories
             .AsNoTracking()
-            .Where(c => c.IsActive)
+            .Where(c => c.IsActive && 
+                       c.RestaurantId == restaurantId && 
+                       c.RestaurantId > 0) // Asegurar que RestaurantId sea válido
             .OrderBy(c => c.DisplayOrder)
             .ToListAsync();
-
-        // Guardar en cache
-        await _cache.SetAsync(CATEGORIES_CACHE_KEY, categories, CACHE_DURATION);
+        
+        // Guardar en cache con clave específica por restaurante
+        await _cache.SetAsync(cacheKey, categories, CACHE_DURATION);
 
         // Generar ETag
         var etag = ETagHelper.GenerateETag(categories);
@@ -62,29 +75,32 @@ public class CategoriesController : ControllerBase
         var clientETag = Request.Headers["If-None-Match"].ToString();
         if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, etag))
         {
-            _logger.LogInformation("Categorías no han cambiado (ETag match): {Count}", categories.Count);
+            _logger.LogInformation("Categorías no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId, categories.Count);
             return StatusCode(304); // Not Modified
         }
 
         // Agregar ETag al header de respuesta
         Response.Headers.Append("ETag", etag);
 
-        _logger.LogInformation("Categorías obtenidas de BD y guardadas en cache: {Count}", categories.Count);
+        _logger.LogInformation("Categorías obtenidas de BD y guardadas en cache para restaurante {RestaurantId}: {Count}", restaurantId, categories.Count);
         return Ok(categories);
     }
 
     /// <summary>
-    /// Obtiene una categoría por ID
+    /// Obtiene una categoría por ID (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("{id}")]
     [ResponseCache(Duration = 600, Location = ResponseCacheLocation.Any, VaryByHeader = "Accept")]
     public async Task<ActionResult<Category>> GetCategory(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         // Usar AsNoTracking para operaciones de solo lectura
         // No incluir Products para evitar problemas de serialización
+        // Filtrar por RestaurantId para multi-tenant
         var category = await _context.Categories
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
 
         if (category == null)
         {
@@ -109,15 +125,18 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Crea una nueva categoría
+    /// Crea una nueva categoría (asignada automáticamente al restaurante del usuario)
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<Category>> CreateCategory([FromBody] CreateCategoryRequest request)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var category = new Category
             {
+                RestaurantId = restaurantId,
                 Name = request.Name,
                 Description = request.Description,
                 Icon = request.Icon,
@@ -129,9 +148,10 @@ public class CategoriesController : ControllerBase
             _context.Categories.Add(category);
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de categorías y productos
-            await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
-            await _cache.RemoveAsync("products_list");
+            // Invalidar cache de categorías y productos para este restaurante
+            var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
+            await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync($"products_list_{restaurantId}");
 
             _logger.LogInformation("Categoría creada: {CategoryId} - {CategoryName}", category.Id, category.Name);
             return CreatedAtAction(nameof(GetCategory), new { id = category.Id }, category);
@@ -144,17 +164,21 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Actualiza una categoría completa
+    /// Actualiza una categoría completa (solo del restaurante del usuario)
     /// </summary>
     [HttpPut("{id}")]
     public async Task<ActionResult<Category>> UpdateCategory(int id, [FromBody] UpdateCategoryRequest request)
     {
         try
         {
-            var category = await _context.Categories.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var category = await _context.Categories
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+            
             if (category == null)
             {
-                return NotFound(new { error = "Categoría no encontrada" });
+                return NotFound(new { error = "Categoría no encontrada o no pertenece a tu restaurante" });
             }
 
             category.Name = request.Name ?? category.Name;
@@ -176,17 +200,21 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Actualiza parcialmente una categoría
+    /// Actualiza parcialmente una categoría (solo del restaurante del usuario)
     /// </summary>
     [HttpPatch("{id}")]
     public async Task<ActionResult<Category>> PatchCategory(int id, [FromBody] PatchCategoryRequest request)
     {
         try
         {
-            var category = await _context.Categories.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var category = await _context.Categories
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+            
             if (category == null)
             {
-                return NotFound(new { error = "Categoría no encontrada" });
+                return NotFound(new { error = "Categoría no encontrada o no pertenece a tu restaurante" });
             }
 
             if (request.Name != null) category.Name = request.Name;
@@ -197,9 +225,10 @@ public class CategoriesController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de categorías y productos
-            await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
-            await _cache.RemoveAsync("products_list");
+            // Invalidar cache de categorías y productos para este restaurante
+            var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
+            await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync($"products_list_{restaurantId}");
 
             _logger.LogInformation("Categoría actualizada (patch): {CategoryId}", category.Id);
             return Ok(category);
@@ -212,17 +241,22 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Elimina una categoría (soft delete - marca como inactiva)
+    /// Elimina una categoría (soft delete - marca como inactiva) - solo del restaurante del usuario
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<ActionResult> DeleteCategory(int id)
     {
         try
         {
-            var category = await _context.Categories.Include(c => c.Products).FirstOrDefaultAsync(c => c.Id == id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var category = await _context.Categories
+                .Include(c => c.Products.Where(p => p.RestaurantId == restaurantId))
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+            
             if (category == null)
             {
-                return NotFound(new { error = "Categoría no encontrada" });
+                return NotFound(new { error = "Categoría no encontrada o no pertenece a tu restaurante" });
             }
 
             // Verificar si tiene productos
@@ -239,9 +273,10 @@ public class CategoriesController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de categorías y productos
-            await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
-            await _cache.RemoveAsync("products_list");
+            // Invalidar cache de categorías y productos para este restaurante
+            var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
+            await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync($"products_list_{restaurantId}");
 
             _logger.LogInformation("Categoría eliminada (soft): {CategoryId}", id);
             return Ok(new { message = "Categoría eliminada correctamente" });
@@ -254,17 +289,22 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Elimina permanentemente una categoría (solo si no tiene productos)
+    /// Elimina permanentemente una categoría (solo si no tiene productos) - solo del restaurante del usuario
     /// </summary>
     [HttpDelete("{id}/permanent")]
     public async Task<ActionResult> DeleteCategoryPermanent(int id)
     {
         try
         {
-            var category = await _context.Categories.Include(c => c.Products).FirstOrDefaultAsync(c => c.Id == id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var category = await _context.Categories
+                .Include(c => c.Products.Where(p => p.RestaurantId == restaurantId))
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+            
             if (category == null)
             {
-                return NotFound(new { error = "Categoría no encontrada" });
+                return NotFound(new { error = "Categoría no encontrada o no pertenece a tu restaurante" });
             }
 
             // Verificar si tiene productos
@@ -279,9 +319,10 @@ public class CategoriesController : ControllerBase
             _context.Categories.Remove(category);
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de categorías y productos
-            await _cache.RemoveAsync(CATEGORIES_CACHE_KEY);
-            await _cache.RemoveAsync("products_list");
+            // Invalidar cache de categorías y productos para este restaurante
+            var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
+            await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync($"products_list_{restaurantId}");
 
             _logger.LogInformation("Categoría eliminada permanentemente: {CategoryId}", id);
             return Ok(new { message = "Categoría eliminada permanentemente" });

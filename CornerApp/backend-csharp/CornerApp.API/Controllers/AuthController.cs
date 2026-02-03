@@ -244,19 +244,70 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> AdminLogin([FromBody] AdminLoginRequest request)
     {
-        // Validar entrada
+        // Validar entrada básica
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
         {
             return BadRequest(new { error = "Usuario y contraseña son requeridos" });
         }
 
-        // Buscar admin por username (case-insensitive)
+        // Verificar si es superadmin (admin / password123)
+        const string SUPERADMIN_USERNAME = "admin";
+        const string SUPERADMIN_PASSWORD = "password123";
+        const string SUPERADMIN_ROLE = "SuperAdmin";
+
+        bool isSuperAdmin = request.Username.ToLower() == SUPERADMIN_USERNAME.ToLower() && 
+                           request.Password == SUPERADMIN_PASSWORD;
+
+        if (isSuperAdmin)
+        {
+            // Login como superadmin - no requiere restaurantId
+            var superAdminToken = GenerateSuperAdminJwtToken(SUPERADMIN_USERNAME);
+
+            _logger.LogInformation("SuperAdmin autenticado exitosamente: {Username}", SUPERADMIN_USERNAME);
+
+            return Ok(new
+            {
+                token = superAdminToken,
+                user = new
+                {
+                    id = 0,
+                    restaurantId = (int?)null,
+                    restaurantName = (string?)null,
+                    username = SUPERADMIN_USERNAME,
+                    email = "admin@cornerapp.com",
+                    name = "Super Admin",
+                    role = SUPERADMIN_ROLE,
+                    isSuperAdmin = true
+                }
+            });
+        }
+
+        // Login normal de admin - requiere restaurantId
+        if (!request.RestaurantId.HasValue || request.RestaurantId.Value <= 0)
+        {
+            return BadRequest(new { error = "ID de restaurante es requerido para usuarios normales" });
+        }
+
+        // Verificar que el restaurante existe y está activo
+        var restaurant = await _context.Restaurants
+            .FirstOrDefaultAsync(r => r.Id == request.RestaurantId.Value && r.IsActive);
+
+        if (restaurant == null)
+        {
+            _logger.LogWarning("Intento de login admin fallido: Restaurante no encontrado o inactivo - RestaurantId: {RestaurantId}", request.RestaurantId);
+            return Unauthorized(new { error = "Restaurante no encontrado o inactivo" });
+        }
+
+        // Buscar admin por restaurantId y username (case-insensitive)
         var admin = await _context.Admins
-            .FirstOrDefaultAsync(a => a.Username.ToLower() == request.Username.ToLower());
+            .Include(a => a.Restaurant)
+            .FirstOrDefaultAsync(a => a.RestaurantId == request.RestaurantId.Value && 
+                                     a.Username.ToLower() == request.Username.ToLower());
 
         if (admin == null)
         {
-            _logger.LogWarning("Intento de login admin fallido: Usuario no encontrado - {Username}", request.Username);
+            _logger.LogWarning("Intento de login admin fallido: Usuario no encontrado - RestaurantId: {RestaurantId}, Username: {Username}", 
+                request.RestaurantId, request.Username);
             return Unauthorized(new { error = "Usuario o contraseña incorrectos" });
         }
 
@@ -282,7 +333,8 @@ public class AuthController : ControllerBase
         // Generar token JWT con rol Admin
         var token = GenerateAdminJwtToken(admin);
 
-        _logger.LogInformation("Admin autenticado exitosamente: {Username} (ID: {AdminId})", admin.Username, admin.Id);
+        _logger.LogInformation("Admin autenticado exitosamente: {Username} (ID: {AdminId}, RestaurantId: {RestaurantId})", 
+            admin.Username, admin.Id, admin.RestaurantId);
 
         return Ok(new
         {
@@ -290,10 +342,13 @@ public class AuthController : ControllerBase
             user = new
             {
                 id = admin.Id,
+                restaurantId = admin.RestaurantId,
+                restaurantName = admin.Restaurant?.Name ?? string.Empty,
                 username = admin.Username,
                 email = admin.Email,
                 name = admin.Name,
-                role = admin.Role ?? "Employee"
+                role = admin.Role ?? "Employee",
+                isSuperAdmin = false
             }
         });
     }
@@ -361,7 +416,8 @@ public class AuthController : ControllerBase
             new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()),
             new Claim(ClaimTypes.Email, admin.Email ?? string.Empty),
             new Claim(ClaimTypes.Name, admin.Name),
-            new Claim(ClaimTypes.Role, admin.Role ?? "Employee") // Rol del usuario (Admin o Employee)
+            new Claim(ClaimTypes.Role, admin.Role ?? "Employee"), // Rol del usuario (Admin o Employee)
+            new Claim("RestaurantId", admin.RestaurantId.ToString()) // Multi-tenant: ID del restaurante
         };
 
         var token = new JwtSecurityToken(
@@ -369,6 +425,46 @@ public class AuthController : ControllerBase
             audience: jwtAudience,
             claims: claims,
             expires: DateTime.UtcNow.AddDays(7), // Token válido por 7 días para admin
+            signingCredentials: credentials
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private string GenerateSuperAdminJwtToken(string username)
+    {
+        // Prioridad: Variable de entorno > appsettings.json > valor por defecto (solo desarrollo)
+        var jwtKey = _configuration["JWT_SECRET_KEY"] 
+            ?? _configuration["Jwt:Key"] 
+            ?? (_configuration.GetValue<string>("ASPNETCORE_ENVIRONMENT") == "Development"
+                ? "your-secret-key-that-is-at-least-32-characters-long-for-security-development-only"
+                : throw new InvalidOperationException("JWT Secret Key no configurado"));
+
+        var jwtIssuer = _configuration["JWT_ISSUER"] 
+            ?? _configuration["Jwt:Issuer"] 
+            ?? "CornerApp";
+
+        var jwtAudience = _configuration["JWT_AUDIENCE"] 
+            ?? _configuration["Jwt:Audience"] 
+            ?? "CornerApp";
+
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+        var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "0"),
+            new Claim(ClaimTypes.Email, "admin@cornerapp.com"),
+            new Claim(ClaimTypes.Name, username),
+            new Claim(ClaimTypes.Role, "SuperAdmin"), // Rol especial para superadmin
+            new Claim("IsSuperAdmin", "true")
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: jwtIssuer,
+            audience: jwtAudience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddDays(7), // Token válido por 7 días
             signingCredentials: credentials
         );
 

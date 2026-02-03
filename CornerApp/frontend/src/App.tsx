@@ -30,6 +30,7 @@ import AdminUsersPage from './pages/AdminUsers';
 import DeliveryOrdersPage from './pages/DeliveryOrders';
 import DeliveryPersonsManagementPage from './pages/DeliveryPersonsManagement';
 import WaiterPage from './pages/WaiterPage';
+import SuperAdminPage from './pages/SuperAdmin';
 
 export default function App() {
   return (
@@ -38,6 +39,15 @@ export default function App() {
       <Route path="/delivery/login" element={<DeliveryLoginPage />} />
       <Route path="/mozo/login" element={<WaiterLoginPage />} />
       <Route path="/" element={<Navigate to="/admin" replace />} />
+      {/* Ruta para SuperAdmin - sin Layout, solo gestión de restaurantes */}
+      <Route
+        path="/superadmin"
+        element={
+          <ProtectedRoute>
+            <SuperAdminPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         element={
           <ProtectedRoute>

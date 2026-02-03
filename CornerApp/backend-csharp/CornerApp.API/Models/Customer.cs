@@ -3,6 +3,11 @@ namespace CornerApp.API.Models;
 public class Customer
 {
     public int Id { get; set; }
+    
+    // Multi-tenant: cada cliente pertenece a un restaurante (opcional, puede ser null para clientes compartidos)
+    public int? RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     public string Name { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;

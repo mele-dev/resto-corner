@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Data;
 using CornerApp.API.Models;
 using BCrypt.Net;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -35,7 +36,11 @@ public class AdminUsersController : ControllerBase
     {
         try
         {
-            var query = _context.Admins.AsQueryable();
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var query = _context.Admins
+                .Where(a => a.RestaurantId == restaurantId)
+                .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -82,8 +87,10 @@ public class AdminUsersController : ControllerBase
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var user = await _context.Admins
-                .Where(a => a.Id == id)
+                .Where(a => a.Id == id && a.RestaurantId == restaurantId)
                 .Select(a => new
                 {
                     id = a.Id,
@@ -145,18 +152,21 @@ public class AdminUsersController : ControllerBase
                 return BadRequest(new { error = "El nombre es requerido" });
             }
 
-            // Verificar si el usuario ya existe
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar si el usuario ya existe en el mismo restaurante
             var usernameLower = request.Username.ToLower();
             var emailLower = request.Email.ToLower();
 
             var existingUser = await _context.Admins
                 .FirstOrDefaultAsync(a => 
-                    a.Username.ToLower() == usernameLower || 
-                    a.Email.ToLower() == emailLower);
+                    a.RestaurantId == restaurantId &&
+                    (a.Username.ToLower() == usernameLower || 
+                     a.Email.ToLower() == emailLower));
 
             if (existingUser != null)
             {
-                return BadRequest(new { error = "El usuario o email ya está registrado" });
+                return BadRequest(new { error = "El usuario o email ya está registrado en tu restaurante" });
             }
 
             // Hashear la contraseña
@@ -178,6 +188,7 @@ public class AdminUsersController : ControllerBase
             // Crear nuevo usuario
             var admin = new Admin
             {
+                RestaurantId = restaurantId,
                 Username = request.Username.Trim(),
                 Email = request.Email.Trim().ToLower(),
                 Name = request.Name.Trim(),
@@ -218,10 +229,14 @@ public class AdminUsersController : ControllerBase
     {
         try
         {
-            var admin = await _context.Admins.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var admin = await _context.Admins
+                .FirstOrDefaultAsync(a => a.Id == id && a.RestaurantId == restaurantId);
+            
             if (admin == null)
             {
-                return NotFound(new { error = "Usuario no encontrado" });
+                return NotFound(new { error = "Usuario no encontrado o no pertenece a tu restaurante" });
             }
 
             // Validar email si se proporciona
@@ -229,11 +244,13 @@ public class AdminUsersController : ControllerBase
             {
                 var emailLower = request.Email.ToLower();
                 var existingUser = await _context.Admins
-                    .FirstOrDefaultAsync(a => a.Id != id && a.Email.ToLower() == emailLower);
+                    .FirstOrDefaultAsync(a => a.RestaurantId == restaurantId && 
+                                            a.Id != id && 
+                                            a.Email.ToLower() == emailLower);
 
                 if (existingUser != null)
                 {
-                    return BadRequest(new { error = "El email ya está en uso" });
+                    return BadRequest(new { error = "El email ya está en uso en tu restaurante" });
                 }
 
                 admin.Email = request.Email.Trim().ToLower();
@@ -310,10 +327,14 @@ public class AdminUsersController : ControllerBase
     {
         try
         {
-            var admin = await _context.Admins.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var admin = await _context.Admins
+                .FirstOrDefaultAsync(a => a.Id == id && a.RestaurantId == restaurantId);
+            
             if (admin == null)
             {
-                return NotFound(new { error = "Usuario no encontrado" });
+                return NotFound(new { error = "Usuario no encontrado o no pertenece a tu restaurante" });
             }
 
             // No permitir eliminar el propio usuario

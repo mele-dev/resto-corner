@@ -5,6 +5,7 @@ using CornerApp.API.Data;
 using CornerApp.API.Constants;
 using CornerApp.API.DTOs;
 using CornerApp.API.Models;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -41,9 +42,12 @@ public class AdminCustomersController : ControllerBase
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var query = _context.Customers
                 .AsNoTracking()
-                .Include(c => c.Orders)
+                .Where(c => c.RestaurantId == restaurantId)
+                .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId))
                 .AsQueryable();
             
             // Filtro de búsqueda
@@ -120,9 +124,12 @@ public class AdminCustomersController : ControllerBase
     {
         try
         {
-            // Verificar si ya existe un cliente con el mismo teléfono o email
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar si ya existe un cliente con el mismo teléfono o email en el mismo restaurante
             var existingCustomer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Phone == request.Phone || c.Email == request.Email);
+                .FirstOrDefaultAsync(c => c.RestaurantId == restaurantId && 
+                                         (c.Phone == request.Phone || c.Email == request.Email));
 
             if (existingCustomer != null)
             {
@@ -154,6 +161,7 @@ public class AdminCustomersController : ControllerBase
 
             var customer = new Customer
             {
+                RestaurantId = restaurantId,
                 Name = request.Name,
                 Phone = request.Phone,
                 Email = request.Email,
@@ -197,10 +205,12 @@ public class AdminCustomersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult> GetCustomer(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var customer = await _context.Customers
             .AsNoTracking()
-            .Include(c => c.Orders)
-            .Where(c => c.Id == id)
+            .Where(c => c.Id == id && c.RestaurantId == restaurantId)
+            .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId))
             .Select(c => new
             {
                 c.Id,

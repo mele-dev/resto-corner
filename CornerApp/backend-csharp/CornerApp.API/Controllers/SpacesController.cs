@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Models;
 using CornerApp.API.Data;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -22,15 +23,17 @@ public class SpacesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los espacios activos
+    /// Obtiene todos los espacios activos (solo del restaurante del usuario)
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Space>>> GetSpaces()
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var spaces = await _context.Spaces
             .AsNoTracking()
-            .Where(s => s.IsActive)
-            .Include(s => s.Tables.Where(t => t.IsActive))
+            .Where(s => s.IsActive && s.RestaurantId == restaurantId)
+            .Include(s => s.Tables.Where(t => t.IsActive && t.RestaurantId == restaurantId))
             .OrderBy(s => s.Name)
             .ToListAsync();
 
@@ -38,19 +41,21 @@ public class SpacesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un espacio por ID
+    /// Obtiene un espacio por ID (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("{id}")]
     public async Task<ActionResult<Space>> GetSpace(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var space = await _context.Spaces
             .AsNoTracking()
-            .Include(s => s.Tables.Where(t => t.IsActive))
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .Include(s => s.Tables.Where(t => t.IsActive && t.RestaurantId == restaurantId))
+            .FirstOrDefaultAsync(s => s.Id == id && s.RestaurantId == restaurantId);
 
         if (space == null)
         {
-            return NotFound(new { error = "Espacio no encontrado" });
+            return NotFound(new { error = "Espacio no encontrado o no pertenece a tu restaurante" });
         }
 
         return Ok(space);
@@ -76,19 +81,23 @@ public class SpacesController : ControllerBase
                 return BadRequest(new { error = "El nombre del espacio es requerido" });
             }
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
             var nameTrimmed = request.Name.Trim();
 
-            // Validar que el nombre del espacio no exista
+            // Validar que el nombre del espacio no exista en el mismo restaurante
             var existingSpace = await _context.Spaces
-                .FirstOrDefaultAsync(s => s.Name.ToLower() == nameTrimmed.ToLower() && s.IsActive);
+                .FirstOrDefaultAsync(s => s.RestaurantId == restaurantId && 
+                                        s.Name.ToLower() == nameTrimmed.ToLower() && 
+                                        s.IsActive);
 
             if (existingSpace != null)
             {
-                return BadRequest(new { error = "Ya existe un espacio con ese nombre" });
+                return BadRequest(new { error = "Ya existe un espacio con ese nombre en tu restaurante" });
             }
 
             var space = new Space
             {
+                RestaurantId = restaurantId,
                 Name = nameTrimmed,
                 Description = !string.IsNullOrWhiteSpace(request.Description) ? request.Description.Trim() : null,
                 IsActive = true,
@@ -123,13 +132,15 @@ public class SpacesController : ControllerBase
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var space = await _context.Spaces
-                .Include(s => s.Tables.Where(t => t.IsActive))
-                .FirstOrDefaultAsync(s => s.Id == id);
+                .Include(s => s.Tables.Where(t => t.IsActive && t.RestaurantId == restaurantId))
+                .FirstOrDefaultAsync(s => s.Id == id && s.RestaurantId == restaurantId);
 
             if (space == null)
             {
-                return NotFound(new { error = "Espacio no encontrado" });
+                return NotFound(new { error = "Espacio no encontrado o no pertenece a tu restaurante" });
             }
 
             // Verificar que todas las mesas del espacio estén disponibles
@@ -151,6 +162,7 @@ public class SpacesController : ControllerBase
             {
                 var hasActiveOrders = await _context.Orders
                     .AnyAsync(o => tableIds.Contains(o.TableId ?? 0)
+                        && o.RestaurantId == restaurantId
                         && !o.IsArchived
                         && (o.Status == "Pending" || o.Status == "Preparing" || o.Status == "Ready"));
 

@@ -3,6 +3,11 @@ namespace CornerApp.API.Models;
 public class Category
 {
     public int Id { get; set; }
+    
+    // Multi-tenant: cada categoría pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     public string Name { get; set; } = string.Empty; // pizza, bebida, postre
     public string Description { get; set; } = string.Empty;
     public string? Icon { get; set; } // URL del ícono o nombre del ícono

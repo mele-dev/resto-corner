@@ -29,10 +29,12 @@ public class CustomersController : ControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
         var (normalizedPage, normalizedPageSize) = PaginationHelper.NormalizePagination(page, pageSize);
 
         var query = _context.Customers
-            .Include(c => c.Orders)
+            .Where(c => c.RestaurantId == restaurantId)
+            .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId))
             .OrderByDescending(c => c.CreatedAt);
 
         var pagedResponse = await PaginationHelper.ToPagedResponseAsync(query, normalizedPage, normalizedPageSize);
@@ -49,9 +51,11 @@ public class CustomersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Customer>> GetCustomer(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var customer = await _context.Customers
-            .Include(c => c.Orders.OrderByDescending(o => o.CreatedAt))
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .Include(c => c.Orders.Where(o => o.RestaurantId == restaurantId).OrderByDescending(o => o.CreatedAt))
+            .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
 
         if (customer == null)
         {
@@ -67,7 +71,10 @@ public class CustomersController : ControllerBase
     [HttpGet("search")]
     public async Task<ActionResult<Customer>> SearchCustomer([FromQuery] string? phone, [FromQuery] string? email)
     {
-        var query = _context.Customers.AsQueryable();
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        var query = _context.Customers
+            .Where(c => c.RestaurantId == restaurantId)
+            .AsQueryable();
 
         if (!string.IsNullOrEmpty(phone))
         {
@@ -97,9 +104,12 @@ public class CustomersController : ControllerBase
     {
         try
         {
-            // Verificar si ya existe un cliente con el mismo teléfono o email
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar si ya existe un cliente con el mismo teléfono o email en el mismo restaurante
             var existingCustomer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Phone == request.Phone || c.Email == request.Email);
+                .FirstOrDefaultAsync(c => c.RestaurantId == restaurantId && 
+                                         (c.Phone == request.Phone || c.Email == request.Email));
 
             if (existingCustomer != null)
             {
@@ -116,6 +126,7 @@ public class CustomersController : ControllerBase
 
             var customer = new Customer
             {
+                RestaurantId = restaurantId,
                 Name = request.Name,
                 Phone = request.Phone,
                 Email = request.Email,
@@ -144,7 +155,11 @@ public class CustomersController : ControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
-        var customer = await _context.Customers.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var customer = await _context.Customers
+            .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+        
         if (customer == null)
         {
             return NotFound();
@@ -153,7 +168,7 @@ public class CustomersController : ControllerBase
         var (normalizedPage, normalizedPageSize) = PaginationHelper.NormalizePagination(page, pageSize);
 
         var query = _context.Orders
-            .Where(o => o.CustomerId == id)
+            .Where(o => o.CustomerId == id && o.RestaurantId == restaurantId)
             .Include(o => o.Items)
             .OrderByDescending(o => o.CreatedAt);
 

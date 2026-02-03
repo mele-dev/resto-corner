@@ -5,6 +5,7 @@ using CornerApp.API.Data;
 using CornerApp.API.Models;
 using CornerApp.API.Services;
 using CornerApp.API.DTOs;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -33,15 +34,26 @@ public class AdminProductsController : ControllerBase
 
     /// <summary>
     /// Endpoint público para mozos: Obtiene todos los productos activos (sin autenticación)
+    /// NOTA: Este endpoint debería recibir restaurantId como parámetro para filtrar correctamente
+    /// Por ahora, se mantiene sin filtro pero debería ser actualizado para recibir restaurantId
     /// </summary>
     [HttpGet("waiter")]
     [AllowAnonymous]
-    public async Task<ActionResult> GetProductsForWaiter()
+    public async Task<ActionResult> GetProductsForWaiter([FromQuery] int? restaurantId = null)
     {
-        var products = await _context.Products
+        var query = _context.Products
             .AsNoTracking()
             .Include(p => p.Category)
             .Where(p => p.IsAvailable)
+            .AsQueryable();
+        
+        // Si se proporciona restaurantId, filtrar por él
+        if (restaurantId.HasValue)
+        {
+            query = query.Where(p => p.RestaurantId == restaurantId.Value);
+        }
+        
+        var products = await query
             .OrderBy(p => p.DisplayOrder)
             .ThenBy(p => p.CreatedAt)
             .Select(p => new
@@ -62,14 +74,17 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los productos
+    /// Obtiene todos los productos del restaurante del usuario autenticado
     /// </summary>
     [HttpGet]
     public async Task<ActionResult> GetProducts()
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var products = await _context.Products
             .AsNoTracking()
             .Include(p => p.Category)
+            .Where(p => p.RestaurantId == restaurantId)
             .OrderBy(p => p.DisplayOrder)
             .ThenBy(p => p.CreatedAt)
             .Select(p => new
@@ -92,15 +107,17 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un producto por ID
+    /// Obtiene un producto por ID (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("{id}")]
     public async Task<ActionResult> GetProduct(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var product = await _context.Products
             .AsNoTracking()
             .Include(p => p.Category)
-            .Where(p => p.Id == id)
+            .Where(p => p.Id == id && p.RestaurantId == restaurantId)
             .Select(p => new
             {
                 p.Id,
@@ -125,13 +142,15 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Crea un nuevo producto
+    /// Crea un nuevo producto (asignado automáticamente al restaurante del usuario)
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<Product>> CreateProduct([FromBody] CreateProductRequest request)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             if (request == null)
             {
                 return BadRequest(new { error = "El request no puede ser nulo" });
@@ -152,6 +171,15 @@ public class AdminProductsController : ControllerBase
                 return BadRequest(new { error = "Debe seleccionar una categoría válida" });
             }
 
+            // Verificar que la categoría pertenezca al mismo restaurante
+            var category = await _context.Categories
+                .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.RestaurantId == restaurantId);
+            
+            if (category == null)
+            {
+                return BadRequest(new { error = "La categoría seleccionada no existe o no pertenece a tu restaurante" });
+            }
+
             var product = await _adminDashboardService.CreateProductAsync(
                 request.Name,
                 request.Description,
@@ -160,6 +188,8 @@ public class AdminProductsController : ControllerBase
                 request.CategoryId,
                 request.DisplayOrder,
                 request.IsAvailable);
+
+            // El RestaurantId ya está asignado en el servicio desde la categoría
 
             return Ok(new
             {
@@ -190,13 +220,36 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Actualiza un producto
+    /// Actualiza un producto (solo del restaurante del usuario)
     /// </summary>
     [HttpPut("{id}")]
     public async Task<ActionResult<Product>> UpdateProduct(int id, [FromBody] UpdateProductRequest request)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar que el producto pertenezca al restaurante del usuario
+            var existingProduct = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id == id && p.RestaurantId == restaurantId);
+            
+            if (existingProduct == null)
+            {
+                return NotFound(new { error = "Producto no encontrado" });
+            }
+
+            // Si se está cambiando la categoría, verificar que pertenezca al mismo restaurante
+            if (request.CategoryId.HasValue && request.CategoryId.Value > 0)
+            {
+                var category = await _context.Categories
+                    .FirstOrDefaultAsync(c => c.Id == request.CategoryId.Value && c.RestaurantId == restaurantId);
+                
+                if (category == null)
+                {
+                    return BadRequest(new { error = "La categoría seleccionada no existe o no pertenece a tu restaurante" });
+                }
+            }
+
             var product = await _adminDashboardService.UpdateProductAsync(
                 id,
                 request.Name,
@@ -236,14 +289,18 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Elimina un producto
+    /// Elimina un producto (solo del restaurante del usuario)
     /// </summary>
     [HttpDelete("{id}")]
     public async Task<ActionResult> DeleteProduct(int id)
     {
         try
         {
-            var product = await _context.Products.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id == id && p.RestaurantId == restaurantId);
+            
             if (product == null)
             {
                 return NotFound(new { error = "Producto no encontrado" });
@@ -252,7 +309,7 @@ public class AdminProductsController : ControllerBase
             _context.Products.Remove(product);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Producto eliminado: {ProductId}", id);
+            _logger.LogInformation("Producto eliminado: {ProductId} del restaurante {RestaurantId}", id, restaurantId);
             return Ok(new { message = "Producto eliminado" });
         }
         catch (DbUpdateException dbEx)
@@ -275,12 +332,16 @@ public class AdminProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Cambia la disponibilidad de un producto
+    /// Cambia la disponibilidad de un producto (solo del restaurante del usuario)
     /// </summary>
     [HttpPatch("{id}/availability")]
     public async Task<ActionResult> ToggleAvailability(int id, [FromBody] bool isAvailable)
     {
-        var product = await _context.Products.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == id && p.RestaurantId == restaurantId);
+        
         if (product == null)
         {
             return NotFound(new { error = "Producto no encontrado" });

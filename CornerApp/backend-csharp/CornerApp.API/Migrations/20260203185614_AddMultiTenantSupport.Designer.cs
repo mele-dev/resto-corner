@@ -4,6 +4,7 @@ using CornerApp.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CornerApp.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260203185614_AddMultiTenantSupport")]
+    partial class AddMultiTenantSupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -971,10 +974,6 @@ namespace CornerApp.API.Migrations
                     b.Property<int?>("EmailConfigId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Identifier")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -1309,7 +1308,7 @@ namespace CornerApp.API.Migrations
                     b.HasOne("CornerApp.API.Models.Restaurant", "Restaurant")
                         .WithMany("Categories")
                         .HasForeignKey("RestaurantId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Restaurant");
@@ -1320,7 +1319,7 @@ namespace CornerApp.API.Migrations
                     b.HasOne("CornerApp.API.Models.Restaurant", "Restaurant")
                         .WithMany("Customers")
                         .HasForeignKey("RestaurantId")
-                        .OnDelete(DeleteBehavior.NoAction);
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Restaurant");
                 });

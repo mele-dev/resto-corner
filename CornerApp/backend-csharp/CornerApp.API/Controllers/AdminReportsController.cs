@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Data;
 using CornerApp.API.Constants;
+using CornerApp.API.Helpers;
 using System.Linq;
 
 namespace CornerApp.API.Controllers;
@@ -28,19 +29,20 @@ public class AdminReportsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene estadísticas para el dashboard principal
+    /// Obtiene estadísticas para el dashboard principal (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("dashboard-stats")]
     public async Task<ActionResult> GetDashboardStats()
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
             var today = DateTime.UtcNow.Date;
             var tomorrow = today.AddDays(1);
 
             var orders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => !o.IsArchived)
+                .Where(o => !o.IsArchived && o.RestaurantId == restaurantId)
                 .ToListAsync();
 
             var todayOrders = orders.Where(o => o.CreatedAt >= today && o.CreatedAt < tomorrow).ToList();
@@ -95,16 +97,18 @@ public class AdminReportsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene datos de ingresos por período
+    /// Obtiene datos de ingresos por período (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("revenue")]
     public async Task<ActionResult> GetRevenue([FromQuery] string period = "month")
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
@@ -112,7 +116,8 @@ public class AdminReportsController : ControllerBase
 
             var orders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= startDate && 
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && 
                            o.Status == OrderConstants.STATUS_COMPLETED && 
                            !o.IsArchived)
                 .ToListAsync();
@@ -151,7 +156,7 @@ public class AdminReportsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene productos más vendidos
+    /// Obtiene productos más vendidos (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("top-products")]
     public async Task<ActionResult> GetTopProducts(
@@ -160,9 +165,11 @@ public class AdminReportsController : ControllerBase
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
@@ -171,7 +178,8 @@ public class AdminReportsController : ControllerBase
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.Items)
-                .Where(o => o.CreatedAt >= startDate && 
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && 
                            o.Status == OrderConstants.STATUS_COMPLETED && 
                            !o.IsArchived)
                 .ToListAsync();
@@ -210,14 +218,18 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var orders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= startDate && !o.IsArchived)
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && !o.IsArchived)
                 .ToListAsync();
 
             var completedOrders = orders.Where(o => o.Status == OrderConstants.STATUS_COMPLETED).ToList();
@@ -262,14 +274,18 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var revenueByMethod = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= startDate && 
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && 
                            o.Status == OrderConstants.STATUS_COMPLETED && 
                            !o.IsArchived)
                 .GroupBy(o => o.PaymentMethod)
@@ -308,7 +324,7 @@ public class AdminReportsController : ControllerBase
                 case "today":
                     currentStart = now.Date;
                     previousStart = now.Date.AddDays(-1);
-                    previousEnd = now.Date;
+                    previousEnd = now.Date.AddDays(1); // Fin del día anterior (inicio del día actual)
                     break;
                 case "week":
                     currentStart = now.AddDays(-7);
@@ -327,9 +343,12 @@ public class AdminReportsController : ControllerBase
                     break;
             }
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var allOrders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= previousStart && !o.IsArchived)
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= previousStart && !o.IsArchived)
                 .ToListAsync();
 
             var currentOrders = allOrders.Where(o => o.CreatedAt >= currentStart).ToList();
@@ -396,14 +415,18 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var orders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= startDate && !o.IsArchived)
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && !o.IsArchived)
                 .ToListAsync();
 
             var ordersByHour = orders
@@ -458,14 +481,18 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var orders = await _context.Orders
                 .AsNoTracking()
-                .Where(o => o.CreatedAt >= startDate && 
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && 
                            o.Status == OrderConstants.STATUS_COMPLETED && 
                            !o.IsArchived)
                 .ToListAsync();
@@ -504,15 +531,19 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.DeliveryPerson)
-                .Where(o => o.CreatedAt >= startDate && 
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && 
                            o.DeliveryPersonId != null &&
                            !o.IsArchived)
                 .ToListAsync();
@@ -555,16 +586,20 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.Items)
                 .Include(o => o.DeliveryPerson)
-                .Where(o => o.CreatedAt >= startDate && !o.IsArchived)
+                .Where(o => o.RestaurantId == restaurantId &&
+                           o.CreatedAt >= startDate && !o.IsArchived)
                 .OrderByDescending(o => o.CreatedAt)
                 .Select(o => new
                 {
@@ -602,14 +637,17 @@ public class AdminReportsController : ControllerBase
             var now = DateTime.UtcNow;
             DateTime startDate = period.ToLower() switch
             {
+                "today" => now.Date,
                 "week" => now.AddDays(-7),
                 "year" => now.AddYears(-1),
                 _ => now.AddMonths(-1)
             };
 
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var cashRegisters = await _context.CashRegisters
                 .AsNoTracking()
-                .Where(c => c.OpenedAt >= startDate)
+                .Where(c => c.RestaurantId == restaurantId && c.OpenedAt >= startDate)
                 .OrderByDescending(c => c.OpenedAt)
                 .ToListAsync();
 
@@ -621,7 +659,8 @@ public class AdminReportsController : ControllerBase
                 // Solo pedidos creados DESPUÉS de que se abrió esta caja y ANTES de que se cerró (o ahora si está abierta)
                 var orders = await _context.Orders
                     .AsNoTracking()
-                    .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                    .Where(o => o.RestaurantId == restaurantId &&
+                               o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
                         && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)  // Hasta que se cerró (o ahora si está abierta)
                         && o.Status == OrderConstants.STATUS_COMPLETED
                         && !o.IsArchived)

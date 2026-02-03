@@ -5,6 +5,7 @@ using CornerApp.API.Data;
 using CornerApp.API.Models;
 using CornerApp.API.Constants;
 using CornerApp.API.DTOs;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -29,12 +30,15 @@ public class AdminDeliveryPersonsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los repartidores (activos e inactivos)
+    /// Obtiene todos los repartidores (activos e inactivos) del restaurante del usuario
     /// </summary>
     [HttpGet]
     public async Task<ActionResult> GetAllDeliveryPersons()
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var deliveryPersons = await _context.DeliveryPersons
+            .Where(d => d.RestaurantId == restaurantId)
             .Select(d => new
             {
                 d.Id,
@@ -73,13 +77,15 @@ public class AdminDeliveryPersonsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un repartidor por ID
+    /// Obtiene un repartidor por ID (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("{id}")]
     public async Task<ActionResult> GetDeliveryPerson(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var deliveryPerson = await _context.DeliveryPersons
-            .Where(d => d.Id == id)
+            .Where(d => d.Id == id && d.RestaurantId == restaurantId)
             .Select(d => new
             {
                 d.Id,
@@ -115,32 +121,39 @@ public class AdminDeliveryPersonsController : ControllerBase
                 return BadRequest(new { error = "Nombre, usuario y contraseña son requeridos" });
             }
 
-            // Verificar si el username ya existe (comparación case-insensitive)
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar si el username ya existe en el mismo restaurante (comparación case-insensitive)
             var usernameLower = request.Username.Trim().ToLower();
             var existingByUsername = await _context.DeliveryPersons
                 .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Username != null && d.Username.ToLower() == usernameLower);
+                .FirstOrDefaultAsync(d => d.RestaurantId == restaurantId && 
+                                         d.Username != null && 
+                                         d.Username.ToLower() == usernameLower);
             if (existingByUsername != null)
             {
-                return BadRequest(new { error = "Este usuario ya existe" });
+                return BadRequest(new { error = "Este usuario ya existe en tu restaurante" });
             }
 
-            // Verificar si el email ya existe (comparación case-insensitive)
+            // Verificar si el email ya existe en el mismo restaurante (comparación case-insensitive)
             if (!string.IsNullOrWhiteSpace(request.Email))
             {
                 var emailLower = request.Email.Trim().ToLower();
                 var existingByEmail = await _context.DeliveryPersons
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(d => d.Email != null && d.Email.ToLower() == emailLower);
+                    .FirstOrDefaultAsync(d => d.RestaurantId == restaurantId && 
+                                             d.Email != null && 
+                                             d.Email.ToLower() == emailLower);
                 if (existingByEmail != null)
                 {
-                    return BadRequest(new { error = "Este email ya está registrado" });
+                    return BadRequest(new { error = "Este email ya está registrado en tu restaurante" });
                 }
             }
 
             var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
             var deliveryPerson = new DeliveryPerson
             {
+                RestaurantId = restaurantId,
                 Name = request.Name?.Trim() ?? string.Empty,
                 Phone = request.Phone?.Trim() ?? string.Empty,
                 Email = !string.IsNullOrWhiteSpace(request.Email) ? request.Email.Trim().ToLower() : null,
@@ -178,10 +191,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpPut("{id}")]
     public async Task<ActionResult> UpdateDeliveryPerson(int id, [FromBody] UpdateDeliveryPersonRequest request)
     {
-        var deliveryPerson = await _context.DeliveryPersons.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var deliveryPerson = await _context.DeliveryPersons
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId);
+        
         if (deliveryPerson == null)
         {
-            return NotFound(new { error = "Repartidor no encontrado" });
+            return NotFound(new { error = "Repartidor no encontrado o no pertenece a tu restaurante" });
         }
 
         if (!string.IsNullOrWhiteSpace(request.Name))
@@ -251,18 +268,24 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<ActionResult> DeleteDeliveryPerson(int id)
     {
-        var deliveryPerson = await _context.DeliveryPersons.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var deliveryPerson = await _context.DeliveryPersons
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId);
+        
         if (deliveryPerson == null)
         {
-            return NotFound(new { error = "Repartidor no encontrado" });
+            return NotFound(new { error = "Repartidor no encontrado o no pertenece a tu restaurante" });
         }
 
-        // Verificar si tiene pedidos asignados
+        // Verificar si tiene pedidos asignados del mismo restaurante
         var hasOrders = await _context.Orders
             .AsNoTracking()
-            .AnyAsync(o => o.DeliveryPersonId == id && !o.IsArchived && 
-                          o.Status != OrderConstants.STATUS_COMPLETED && 
-                          o.Status != OrderConstants.STATUS_CANCELLED);
+            .AnyAsync(o => o.DeliveryPersonId == id && 
+                         o.RestaurantId == restaurantId &&
+                         !o.IsArchived && 
+                         o.Status != OrderConstants.STATUS_COMPLETED && 
+                         o.Status != OrderConstants.STATUS_CANCELLED);
         
         if (hasOrders)
         {
@@ -287,11 +310,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpGet("stats")]
     public async Task<ActionResult> GetStats()
     {
-        var total = await _context.DeliveryPersons.CountAsync();
-        var active = await _context.DeliveryPersons.CountAsync(d => d.IsActive);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var total = await _context.DeliveryPersons.CountAsync(d => d.RestaurantId == restaurantId);
+        var active = await _context.DeliveryPersons.CountAsync(d => d.RestaurantId == restaurantId && d.IsActive);
         
         var activeOrdersByPerson = await _context.Orders
-            .Where(o => o.DeliveryPersonId.HasValue && !o.IsArchived && 
+            .Where(o => o.RestaurantId == restaurantId &&
+                       o.DeliveryPersonId.HasValue && !o.IsArchived && 
                        o.Status != OrderConstants.STATUS_COMPLETED && 
                        o.Status != OrderConstants.STATUS_CANCELLED)
             .GroupBy(o => o.DeliveryPersonId)
@@ -313,10 +339,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpGet("{id}/cash-register/status")]
     public async Task<ActionResult> GetDeliveryPersonCashRegisterStatus(int id)
     {
-        var deliveryPerson = await _context.DeliveryPersons.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var deliveryPerson = await _context.DeliveryPersons
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId);
+        
         if (deliveryPerson == null)
         {
-            return NotFound(new { error = "Repartidor no encontrado" });
+            return NotFound(new { error = "Repartidor no encontrado o no pertenece a tu restaurante" });
         }
 
         var openCashRegister = await _context.DeliveryCashRegisters
@@ -333,6 +363,7 @@ public class AdminDeliveryPersonsController : ControllerBase
         // Obtener pedidos asignados a este repartidor durante esta sesión
         var orders = await _context.Orders
             .Where(o => o.DeliveryPersonId == id
+                && o.RestaurantId == restaurantId
                 && o.CreatedAt >= openCashRegister.OpenedAt
                 && !o.IsArchived)
             .ToListAsync();
@@ -370,12 +401,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpPost("{id}/cash-register/open")]
     public async Task<ActionResult> OpenDeliveryPersonCashRegister(int id, [FromBody] OpenDeliveryCashRegisterRequest? request)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var deliveryPerson = await _context.DeliveryPersons
-            .FirstOrDefaultAsync(d => d.Id == id && d.IsActive);
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId && d.IsActive);
 
         if (deliveryPerson == null)
         {
-            return BadRequest(new { error = "Repartidor no encontrado o inactivo" });
+            return BadRequest(new { error = "Repartidor no encontrado, inactivo o no pertenece a tu restaurante" });
         }
 
         if (request == null || request.InitialAmount < 0)
@@ -417,10 +450,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpPost("{id}/cash-register/close")]
     public async Task<ActionResult> CloseDeliveryPersonCashRegister(int id, [FromBody] CloseDeliveryCashRegisterRequest? request)
     {
-        var deliveryPerson = await _context.DeliveryPersons.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var deliveryPerson = await _context.DeliveryPersons
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId);
+        
         if (deliveryPerson == null)
         {
-            return NotFound(new { error = "Repartidor no encontrado" });
+            return NotFound(new { error = "Repartidor no encontrado o no pertenece a tu restaurante" });
         }
 
         // Obtener la caja abierta de este repartidor
@@ -547,10 +584,14 @@ public class AdminDeliveryPersonsController : ControllerBase
     [HttpGet("{id}/orders")]
     public async Task<ActionResult> GetDeliveryPersonOrders(int id, [FromQuery] bool includeCompleted = false)
     {
-        var deliveryPerson = await _context.DeliveryPersons.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        var deliveryPerson = await _context.DeliveryPersons
+            .FirstOrDefaultAsync(d => d.Id == id && d.RestaurantId == restaurantId);
+        
         if (deliveryPerson == null)
         {
-            return NotFound(new { error = "Repartidor no encontrado" });
+            return NotFound(new { error = "Repartidor no encontrado o no pertenece a tu restaurante" });
         }
 
         // Verificar si hay una caja abierta
@@ -562,7 +603,9 @@ public class AdminDeliveryPersonsController : ControllerBase
         var query = _context.Orders
             .Include(o => o.Items)
             .Include(o => o.Customer)
-            .Where(o => o.DeliveryPersonId == id && !o.IsArchived);
+            .Where(o => o.DeliveryPersonId == id && 
+                       o.RestaurantId == restaurantId &&
+                       !o.IsArchived);
 
         // Si hay caja abierta, filtrar por pedidos de esa sesión
         if (openCashRegister != null)

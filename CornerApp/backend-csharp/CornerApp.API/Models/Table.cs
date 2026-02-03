@@ -7,6 +7,10 @@ public class Table
 {
     public int Id { get; set; }
     
+    // Multi-tenant: cada mesa pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     /// <summary>
     /// Número o nombre de la mesa (ej: "Mesa 1", "Mesa A", "Terraza 3")
     /// </summary>

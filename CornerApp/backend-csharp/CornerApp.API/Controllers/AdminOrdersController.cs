@@ -71,7 +71,7 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los pedidos para administración
+    /// Obtiene todos los pedidos para administración (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("orders")]
     public async Task<ActionResult<IEnumerable<Order>>> GetOrders(
@@ -81,6 +81,8 @@ public class AdminOrdersController : ControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         // Normalizar paginación con límites
         var (normalizedPage, normalizedPageSize) = PaginationHelper.NormalizePagination(
             page, pageSize, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -88,6 +90,7 @@ public class AdminOrdersController : ControllerBase
         var query = _context.Orders
             .AsNoTracking()
             .Include(o => o.Items)
+            .Where(o => o.RestaurantId == restaurantId)
             .AsQueryable();
 
         if (!showArchived)
@@ -121,13 +124,15 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene pedidos activos (no completados ni cancelados) con paginación
+    /// Obtiene pedidos activos (no completados ni cancelados) con paginación (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("orders/active")]
     public async Task<ActionResult<IEnumerable<Order>>> GetActiveOrders(
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         // Normalizar paginación con límites
         var (normalizedPage, normalizedPageSize) = PaginationHelper.NormalizePagination(
             page, pageSize, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -136,7 +141,8 @@ public class AdminOrdersController : ControllerBase
             .AsNoTracking()
             .Include(o => o.Items)
             .Include(o => o.Table) // Incluir información de la mesa para mostrar número de mesa
-            .Where(o => !o.IsArchived && 
+            .Where(o => o.RestaurantId == restaurantId &&
+                       !o.IsArchived && 
                        o.Status != OrderConstants.STATUS_COMPLETED && 
                        o.Status != OrderConstants.STATUS_CANCELLED)
             .OrderByDescending(o => o.CreatedAt);
@@ -148,31 +154,35 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un pedido por ID (incluye pedidos archivados)
+    /// Obtiene un pedido por ID (solo del restaurante del usuario, incluye pedidos archivados)
     /// </summary>
     [HttpGet("orders/{id}")]
     public async Task<ActionResult<Order>> GetOrder(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var order = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items)
             .Include(o => o.DeliveryPerson)
-            .FirstOrDefaultAsync(o => o.Id == id);
+            .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
 
         if (order == null)
         {
-            return NotFound(new { error = "Pedido no encontrado", orderId = id, message = "El pedido puede haber sido eliminado permanentemente" });
+            return NotFound(new { error = "Pedido no encontrado", orderId = id, message = "El pedido puede haber sido eliminado permanentemente o no pertenece a tu restaurante" });
         }
 
         return Ok(order);
     }
 
     /// <summary>
-    /// Obtiene información de fechas de creación de pedidos específicos (útil para debugging)
+    /// Obtiene información de fechas de creación de pedidos específicos (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("orders/dates")]
     public async Task<ActionResult> GetOrdersCreationDates([FromQuery] int[] ids)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         if (ids == null || ids.Length == 0)
         {
             return BadRequest(new { error = "Debe proporcionar al menos un ID de pedido" });
@@ -180,7 +190,7 @@ public class AdminOrdersController : ControllerBase
 
         var orders = await _context.Orders
             .AsNoTracking()
-            .Where(o => ids.Contains(o.Id))
+            .Where(o => ids.Contains(o.Id) && o.RestaurantId == restaurantId)
             .Select(o => new
             {
                 o.Id,
@@ -211,13 +221,15 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene pedidos archivados con paginación
+    /// Obtiene pedidos archivados con paginación (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("orders/archived")]
     public async Task<ActionResult<IEnumerable<Order>>> GetArchivedOrders(
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var (normalizedPage, normalizedPageSize) = PaginationHelper.NormalizePagination(
             page, pageSize, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
 
@@ -225,7 +237,7 @@ public class AdminOrdersController : ControllerBase
             .AsNoTracking()
             .Include(o => o.Items)
             .Include(o => o.DeliveryPerson)
-            .Where(o => o.IsArchived)
+            .Where(o => o.RestaurantId == restaurantId && o.IsArchived)
             .OrderByDescending(o => o.ArchivedAt ?? o.UpdatedAt ?? o.CreatedAt);
 
         var pagedResponse = await PaginationHelper.ToPagedResponseAsync(
@@ -235,15 +247,17 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene productos disponibles para crear pedidos
+    /// Obtiene productos disponibles para crear pedidos (solo del restaurante del usuario)
     /// </summary>
     [HttpGet("orders/products")]
     public async Task<ActionResult<IEnumerable<object>>> GetProducts()
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var products = await _context.Products
             .AsNoTracking()
             .Include(p => p.Category)
-            .Where(p => p.IsAvailable)
+            .Where(p => p.RestaurantId == restaurantId && p.IsAvailable)
             .OrderBy(p => p.DisplayOrder)
             .ThenBy(p => p.CreatedAt)
             .Select(p => new
@@ -262,13 +276,15 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Crea un pedido manualmente desde administración
+    /// Crea un pedido manualmente desde administración (asignado automáticamente al restaurante del usuario)
     /// </summary>
     [HttpPost("orders/create")]
     public async Task<ActionResult<Order>> CreateOrder([FromBody] CreateOrderRequest request)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             if (request == null)
             {
                 return BadRequest(new { error = "El request no puede ser nulo" });
@@ -284,11 +300,11 @@ public class AdminOrdersController : ControllerBase
                 return BadRequest(new { error = "El nombre del cliente es requerido" });
             }
 
-            // Validar que todos los productos existan en la base de datos
+            // Validar que todos los productos existan en la base de datos y pertenezcan al restaurante
             var productIds = request.Items.Select(item => item.Id).Distinct().ToList();
             var existingProducts = await _context.Products
                 .Include(p => p.Category)
-                .Where(p => productIds.Contains(p.Id))
+                .Where(p => productIds.Contains(p.Id) && p.RestaurantId == restaurantId)
                 .ToListAsync();
             
             var missingProductIds = productIds.Except(existingProducts.Select(p => p.Id)).ToList();
@@ -315,13 +331,13 @@ public class AdminOrdersController : ControllerBase
                 if (!string.IsNullOrWhiteSpace(request.CustomerPhone))
                 {
                     existingCustomer = await _context.Customers
-                        .FirstOrDefaultAsync(c => c.Phone == request.CustomerPhone);
+                        .FirstOrDefaultAsync(c => c.Phone == request.CustomerPhone && c.RestaurantId == restaurantId);
                 }
                 
                 if (existingCustomer == null && !string.IsNullOrWhiteSpace(request.CustomerEmail))
                 {
                     existingCustomer = await _context.Customers
-                        .FirstOrDefaultAsync(c => c.Email == request.CustomerEmail);
+                        .FirstOrDefaultAsync(c => c.Email == request.CustomerEmail && c.RestaurantId == restaurantId);
                 }
                 
                 if (existingCustomer != null)
@@ -343,6 +359,7 @@ public class AdminOrdersController : ControllerBase
                     
                     var newCustomer = new Customer
                     {
+                        RestaurantId = restaurantId,
                         Name = request.CustomerName,
                         Phone = request.CustomerPhone ?? string.Empty,
                         Email = customerEmail,
@@ -494,6 +511,7 @@ public class AdminOrdersController : ControllerBase
 
             var order = new Order
             {
+                RestaurantId = restaurantId,
                 CustomerId = customerId,
                 CustomerName = request.CustomerName ?? string.Empty,
                 CustomerPhone = request.CustomerPhone ?? string.Empty,
@@ -721,21 +739,23 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Actualiza el estado de un pedido
+    /// Actualiza el estado de un pedido (solo del restaurante del usuario)
     /// </summary>
     [HttpPut("orders/{id}/status")]
     public async Task<ActionResult> UpdateOrderStatus(int id, [FromBody] UpdateOrderStatusRequest request)
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var order = await _context.Orders
                 .Include(o => o.DeliveryPerson)
                 .Include(o => o.Items)
-                .FirstOrDefaultAsync(o => o.Id == id);
+                .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
 
             if (order == null)
             {
-                return NotFound(new { error = "Pedido no encontrado" });
+                return NotFound(new { error = "Pedido no encontrado o no pertenece a tu restaurante" });
             }
 
             var oldStatus = order.Status;
@@ -754,10 +774,11 @@ public class AdminOrdersController : ControllerBase
             };
             _context.OrderStatusHistory.Add(historyEntry);
 
-            // Asignar repartidor si se proporciona
+            // Asignar repartidor si se proporciona (solo del mismo restaurante)
             if (request.DeliveryPersonId.HasValue)
             {
-                var deliveryPerson = await _context.DeliveryPersons.FindAsync(request.DeliveryPersonId.Value);
+                var deliveryPerson = await _context.DeliveryPersons
+                    .FirstOrDefaultAsync(d => d.Id == request.DeliveryPersonId.Value && d.RestaurantId == restaurantId);
                 if (deliveryPerson != null && deliveryPerson.IsActive)
                 {
                     order.DeliveryPersonId = request.DeliveryPersonId.Value;

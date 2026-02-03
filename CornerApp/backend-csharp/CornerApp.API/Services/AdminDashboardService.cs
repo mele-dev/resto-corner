@@ -337,21 +337,23 @@ public class AdminDashboardService : IAdminDashboardService
     /// <summary>
     /// Crea una nueva categoría
     /// </summary>
-    public async Task<Category> CreateCategoryAsync(string name, string? description, string? icon)
+    public async Task<Category> CreateCategoryAsync(int restaurantId, string name, string? description, string? icon)
     {
-        // Verificar si la categoría ya existe (comparación case-insensitive)
+        // Verificar si la categoría ya existe en el mismo restaurante (comparación case-insensitive)
         var trimmedName = name.Trim().ToLower();
         var existingCategory = await _context.Categories
-            .FirstOrDefaultAsync(c => c.Name != null && c.Name.ToLower() == trimmedName);
+            .FirstOrDefaultAsync(c => c.RestaurantId == restaurantId && 
+                                     c.Name != null && 
+                                     c.Name.ToLower() == trimmedName);
 
         if (existingCategory != null)
         {
-            throw new InvalidOperationException("Ya existe una categoría con ese nombre");
+            throw new InvalidOperationException("Ya existe una categoría con ese nombre en tu restaurante");
         }
 
-        // Obtener el siguiente DisplayOrder
+        // Obtener el siguiente DisplayOrder para este restaurante
         var activeCategories = await _context.Categories
-            .Where(c => c.IsActive)
+            .Where(c => c.RestaurantId == restaurantId && c.IsActive)
             .Select(c => c.DisplayOrder)
             .ToListAsync();
         
@@ -359,6 +361,7 @@ public class AdminDashboardService : IAdminDashboardService
 
         var category = new Category
         {
+            RestaurantId = restaurantId,
             Name = name.Trim(),
             Description = description?.Trim() ?? string.Empty,
             Icon = icon?.Trim(),
@@ -370,7 +373,8 @@ public class AdminDashboardService : IAdminDashboardService
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Categoría creada: {CategoryId} - {CategoryName}", category.Id, category.Name);
+        _logger.LogInformation("Categoría creada: {CategoryId} - {CategoryName} para restaurante {RestaurantId}", 
+            category.Id, category.Name, restaurantId);
         return category;
     }
 
@@ -391,15 +395,18 @@ public class AdminDashboardService : IAdminDashboardService
             var trimmedName = name.Trim();
             var currentName = category.Name ?? string.Empty;
             
-            // Si el nombre cambió, verificar que no exista otra categoría con ese nombre
+            // Si el nombre cambió, verificar que no exista otra categoría con ese nombre en el mismo restaurante
             if (currentName.ToLower() != trimmedName.ToLower())
             {
                 var existingCategory = await _context.Categories
-                    .FirstOrDefaultAsync(c => c.Name != null && c.Name.ToLower() == trimmedName.ToLower() && c.Id != id);
+                    .FirstOrDefaultAsync(c => c.RestaurantId == category.RestaurantId && 
+                                             c.Name != null && 
+                                             c.Name.ToLower() == trimmedName.ToLower() && 
+                                             c.Id != id);
                 
                 if (existingCategory != null)
                 {
-                    throw new InvalidOperationException("Ya existe una categoría con ese nombre");
+                    throw new InvalidOperationException("Ya existe una categoría con ese nombre en tu restaurante");
                 }
             }
             
@@ -473,12 +480,21 @@ public class AdminDashboardService : IAdminDashboardService
             throw new KeyNotFoundException($"La categoría con ID {categoryId} no existe");
         }
 
-        // Obtener el siguiente DisplayOrder para productos de la misma categoría
+        // Obtener la categoría para validar RestaurantId
+        var category = await _context.Categories
+            .FirstOrDefaultAsync(c => c.Id == categoryId);
+        
+        if (category == null)
+        {
+            throw new KeyNotFoundException($"La categoría con ID {categoryId} no existe");
+        }
+
+        // Obtener el siguiente DisplayOrder para productos de la misma categoría y restaurante
         int maxDisplayOrder = 0;
         try
         {
             maxDisplayOrder = await _context.Products
-                .Where(p => p.CategoryId == categoryId)
+                .Where(p => p.CategoryId == categoryId && p.RestaurantId == category.RestaurantId)
                 .Select(p => p.DisplayOrder)
                 .DefaultIfEmpty(0)
                 .MaxAsync();
@@ -491,6 +507,7 @@ public class AdminDashboardService : IAdminDashboardService
 
         var product = new Product
         {
+            RestaurantId = category.RestaurantId,
             Name = name.Trim(),
             Description = description?.Trim() ?? string.Empty,
             Price = price,

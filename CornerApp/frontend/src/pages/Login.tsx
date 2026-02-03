@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast/ToastContext';
-import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck } from 'lucide-react';
+import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
 
 export default function LoginPage() {
+  const [restaurantId, setRestaurantId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,15 +18,55 @@ export default function LoginPage() {
     e.preventDefault();
     
     if (!username || !password) {
-      showToast('Por favor completa todos los campos', 'error');
+      showToast('Por favor completa usuario y contraseña', 'error');
       return;
+    }
+
+    // Si no hay restaurantId, verificar si es superadmin
+    if (!restaurantId) {
+      if (username.toLowerCase() !== 'admin') {
+        showToast('El ID del restaurante es requerido para usuarios normales', 'error');
+        return;
+      }
+    } else {
+      const restaurantIdNum = parseInt(restaurantId, 10);
+      if (isNaN(restaurantIdNum) || restaurantIdNum <= 0) {
+        showToast('El ID del restaurante debe ser un número válido', 'error');
+        return;
+      }
     }
 
     try {
       setLoading(true);
-      await login(username, password);
+      const restaurantIdNum = restaurantId ? parseInt(restaurantId, 10) : null;
+      await login(restaurantIdNum, username, password);
       showToast('¡Bienvenido!', 'success');
-      navigate('/admin');
+      // Verificar si es superadmin para redirigir correctamente
+      const savedUser = localStorage.getItem('admin_user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        if (userData.role === 'SuperAdmin') {
+          navigate('/superadmin');
+        } else {
+          navigate('/admin');
+        }
+      } else {
+        navigate('/admin');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
+      showToast(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuperAdminLogin = async () => {
+    try {
+      setLoading(true);
+      await login(null, 'admin', 'password123');
+      showToast('¡Bienvenido SuperAdmin!', 'success');
+      navigate('/superadmin');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
       showToast(errorMessage, 'error');
@@ -96,6 +137,29 @@ export default function LoginPage() {
 
           {/* Formulario */}
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* ID Restaurante */}
+            <div>
+              <label htmlFor="restaurantId" className="block text-sm font-semibold text-white mb-2">
+                ID Restaurante <span className="text-gray-400 text-xs">(opcional para SuperAdmin)</span>
+              </label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <User size={20} className="text-gray-400 group-focus-within:text-primary-500 transition-colors" />
+                </div>
+                <input
+                  id="restaurantId"
+                  type="number"
+                  value={restaurantId}
+                  onChange={(e) => setRestaurantId(e.target.value)}
+                  className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
+                  placeholder="Ingresa el ID del restaurante"
+                  autoComplete="off"
+                  disabled={loading}
+                  min="1"
+                />
+              </div>
+            </div>
+
             {/* Usuario */}
             <div>
               <label htmlFor="username" className="block text-sm font-semibold text-white mb-2">
@@ -159,6 +223,19 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          {/* Botón SuperAdmin */}
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleSuperAdminLogin}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-600 text-white rounded-xl hover:from-yellow-600 hover:to-orange-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Crown size={18} />
+              <span>Acceso SuperAdmin</span>
+            </button>
+          </div>
 
           {/* Footer */}
           <div className="mt-8 pt-6 border-t border-gray-200">

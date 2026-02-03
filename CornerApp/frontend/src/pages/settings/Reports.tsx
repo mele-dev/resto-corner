@@ -384,7 +384,7 @@ export default function ReportsPage() {
       // Hoja de resumen
       if (stats) {
         const summarySheet = XLSX.utils.json_to_sheet([{
-          'Período': period,
+          'Período': periodLabels[period],
           'Total Pedidos': stats.totalOrders,
           'Completados': stats.completedOrders,
           'Cancelados': stats.cancelledOrders,
@@ -648,7 +648,6 @@ export default function ReportsPage() {
             <CreditCard size={20} className="text-primary-500" />
             Ingresos por Método de Pago
           </h2>
-          iego senisa 
           {revenueByPayment.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No hay datos para este período</p>
           ) : (

@@ -1073,6 +1073,57 @@ if (app.Environment.IsDevelopment())
             
             // Los usuarios deben crearse manualmente en la base de datos
             // No se crean usuarios automáticamente al iniciar la aplicación
+            
+            // Limpiar datos huérfanos (categorías y productos sin RestaurantId válido)
+            try
+            {
+                var orphanedCategoriesCount = await dbContext.Categories
+                    .Where(c => c.RestaurantId <= 0)
+                    .CountAsync();
+                
+                var orphanedProductsCount = await dbContext.Products
+                    .Where(p => p.RestaurantId <= 0)
+                    .CountAsync();
+
+                if (orphanedCategoriesCount > 0 || orphanedProductsCount > 0)
+                {
+                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+                    logger.LogWarning("Encontrados datos huérfanos: {CategoriesCount} categorías y {ProductsCount} productos sin RestaurantId válido. Limpiando...", 
+                        orphanedCategoriesCount, orphanedProductsCount);
+
+                    // Eliminar categorías huérfanas
+                    var orphanedCategories = await dbContext.Categories
+                        .Where(c => c.RestaurantId <= 0)
+                        .ToListAsync();
+                    
+                    if (orphanedCategories.Any())
+                    {
+                        dbContext.Categories.RemoveRange(orphanedCategories);
+                        logger.LogInformation("Eliminando {Count} categorías huérfanas", orphanedCategories.Count);
+                    }
+
+                    // Eliminar productos huérfanos
+                    var orphanedProducts = await dbContext.Products
+                        .Where(p => p.RestaurantId <= 0)
+                        .ToListAsync();
+                    
+                    if (orphanedProducts.Any())
+                    {
+                        dbContext.Products.RemoveRange(orphanedProducts);
+                        logger.LogInformation("Eliminando {Count} productos huérfanos", orphanedProducts.Count);
+                    }
+
+                    await dbContext.SaveChangesAsync();
+                    logger.LogInformation("Limpieza completada: {CategoriesCount} categorías y {ProductsCount} productos eliminados", 
+                        orphanedCategoriesCount, orphanedProductsCount);
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+                logger.LogError(cleanupEx, "Error al limpiar datos huérfanos (no crítico)");
+                // No lanzar excepción, es una operación de limpieza no crítica
+            }
         }
         catch (Exception ex)
         {

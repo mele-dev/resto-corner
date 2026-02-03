@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Data;
 using CornerApp.API.Models;
 using CornerApp.API.DTOs;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -33,6 +34,17 @@ public class SubProductsController : ControllerBase
     [HttpGet("product/{productId}")]
     public async Task<ActionResult> GetSubProductsByProduct(int productId)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
+        // Verificar que el producto pertenezca al restaurante
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == productId && p.RestaurantId == restaurantId);
+        
+        if (product == null)
+        {
+            return NotFound(new { error = "Producto no encontrado o no pertenece a tu restaurante" });
+        }
+        
         var subProducts = await _context.SubProducts
             .AsNoTracking()
             .Where(sp => sp.ProductId == productId)
@@ -61,9 +73,12 @@ public class SubProductsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult> GetSubProduct(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var subProduct = await _context.SubProducts
             .AsNoTracking()
-            .Where(sp => sp.Id == id)
+            .Include(sp => sp.Product)
+            .Where(sp => sp.Id == id && sp.Product != null && sp.Product.RestaurantId == restaurantId)
             .Select(sp => new
             {
                 sp.Id,
@@ -99,11 +114,15 @@ public class SubProductsController : ControllerBase
                 return BadRequest(new { error = "El nombre del subproducto es requerido" });
             }
 
-            // Verificar que el producto existe
-            var product = await _context.Products.FindAsync(request.ProductId);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar que el producto existe y pertenece al restaurante
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id == request.ProductId && p.RestaurantId == restaurantId);
+            
             if (product == null)
             {
-                return NotFound(new { error = "El producto especificado no existe" });
+                return NotFound(new { error = "El producto especificado no existe o no pertenece a tu restaurante" });
             }
 
             var subProduct = new SubProduct
@@ -163,19 +182,28 @@ public class SubProductsController : ControllerBase
     {
         try
         {
-            var subProduct = await _context.SubProducts.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var subProduct = await _context.SubProducts
+                .Include(sp => sp.Product)
+                .FirstOrDefaultAsync(sp => sp.Id == id && 
+                                         sp.Product != null && 
+                                         sp.Product.RestaurantId == restaurantId);
+            
             if (subProduct == null)
             {
-                return NotFound(new { error = "Subproducto no encontrado" });
+                return NotFound(new { error = "Subproducto no encontrado o no pertenece a tu restaurante" });
             }
 
-            // Si se cambia el ProductId, verificar que el nuevo producto existe
+            // Si se cambia el ProductId, verificar que el nuevo producto existe y pertenece al restaurante
             if (request.ProductId.HasValue && request.ProductId.Value != subProduct.ProductId)
             {
-                var product = await _context.Products.FindAsync(request.ProductId.Value);
+                var product = await _context.Products
+                    .FirstOrDefaultAsync(p => p.Id == request.ProductId.Value && p.RestaurantId == restaurantId);
+                
                 if (product == null)
                 {
-                    return NotFound(new { error = "El producto especificado no existe" });
+                    return NotFound(new { error = "El producto especificado no existe o no pertenece a tu restaurante" });
                 }
                 subProduct.ProductId = request.ProductId.Value;
             }
@@ -239,10 +267,17 @@ public class SubProductsController : ControllerBase
     {
         try
         {
-            var subProduct = await _context.SubProducts.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var subProduct = await _context.SubProducts
+                .Include(sp => sp.Product)
+                .FirstOrDefaultAsync(sp => sp.Id == id && 
+                                         sp.Product != null && 
+                                         sp.Product.RestaurantId == restaurantId);
+            
             if (subProduct == null)
             {
-                return NotFound(new { error = "Subproducto no encontrado" });
+                return NotFound(new { error = "Subproducto no encontrado o no pertenece a tu restaurante" });
             }
 
             _context.SubProducts.Remove(subProduct);

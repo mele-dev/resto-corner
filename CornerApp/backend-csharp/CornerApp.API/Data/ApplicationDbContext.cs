@@ -11,6 +11,7 @@ public class ApplicationDbContext : DbContext
     {
     }
 
+    public DbSet<Restaurant> Restaurants { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<SubProduct> SubProducts { get; set; }
     public DbSet<Order> Orders { get; set; }
@@ -34,6 +35,22 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Configurar Restaurant (multi-tenant)
+        modelBuilder.Entity<Restaurant>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.Address).HasMaxLength(500);
+            entity.Property(e => e.Phone).HasMaxLength(50);
+            entity.Property(e => e.Email).HasMaxLength(200);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+            
+            // Índices
+            entity.HasIndex(e => e.Name);
+            entity.HasIndex(e => e.IsActive);
+        });
+
         // Configurar Category
         modelBuilder.Entity<Category>(entity =>
         {
@@ -41,12 +58,21 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Name).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Description).HasMaxLength(500);
             entity.Property(e => e.Icon).HasMaxLength(200);
-            entity.HasIndex(e => e.Name).IsUnique();
+            
+            // Relación con Restaurant (NO ACTION para evitar múltiples rutas de cascada)
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Categories)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.NoAction);
+            
+            // Índice único por restaurante (mismo nombre no puede repetirse en un restaurante)
+            entity.HasIndex(e => new { e.RestaurantId, e.Name }).IsUnique();
             
             // Índices para optimizar consultas frecuentes
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.DisplayOrder);
-            entity.HasIndex(e => new { e.IsActive, e.DisplayOrder }); // Índice compuesto para consultas comunes
+            entity.HasIndex(e => new { e.RestaurantId, e.IsActive, e.DisplayOrder }); // Índice compuesto para consultas comunes
         });
 
         // Configurar Product
@@ -58,6 +84,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
             entity.Property(e => e.Image).HasMaxLength(500);
             
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Products)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
             // Relación con Category
             entity.HasOne(e => e.Category)
                   .WithMany(c => c.Products)
@@ -65,10 +97,11 @@ public class ApplicationDbContext : DbContext
                   .OnDelete(DeleteBehavior.Restrict);
             
             // Índices para optimizar consultas frecuentes
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.CategoryId);
             entity.HasIndex(e => e.IsAvailable);
             entity.HasIndex(e => e.DisplayOrder);
-            entity.HasIndex(e => new { e.CategoryId, e.IsAvailable, e.DisplayOrder }); // Índice compuesto para consultas comunes
+            entity.HasIndex(e => new { e.RestaurantId, e.CategoryId, e.IsAvailable, e.DisplayOrder }); // Índice compuesto para consultas comunes
         });
 
         // Configurar SubProduct
@@ -105,9 +138,17 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Points).HasDefaultValue(0);
             
-            // Índice único en email
-            entity.HasIndex(e => e.Email).IsUnique();
+            // Relación con Restaurant (opcional, NO ACTION para evitar múltiples rutas de cascada)
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Customers)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.NoAction);
+            
+            // Índice único en email por restaurante (si RestaurantId no es null)
+            entity.HasIndex(e => new { e.RestaurantId, e.Email });
+            entity.HasIndex(e => e.Email);
             entity.HasIndex(e => e.Phone);
+            entity.HasIndex(e => e.RestaurantId);
         });
 
         // Configurar DeliveryPerson
@@ -121,9 +162,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(500);
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             
-            // Índice único en username y email
-            entity.HasIndex(e => e.Username).IsUnique();
-            entity.HasIndex(e => e.Email).IsUnique();
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.DeliveryPersons)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // Índice único en username por restaurante
+            entity.HasIndex(e => new { e.RestaurantId, e.Username }).IsUnique();
+            entity.HasIndex(e => new { e.RestaurantId, e.Email }).IsUnique();
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.Phone);
         });
 
@@ -163,6 +211,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.CustomerLatitude).HasColumnType("float");
             entity.Property(e => e.CustomerLongitude).HasColumnType("float");
             entity.Property(e => e.Comments).HasMaxLength(1000); // Comentarios del pedido
+            
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Orders)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
             
             // Relación con Customer (opcional)
             entity.HasOne(e => e.Customer)
@@ -207,15 +261,16 @@ public class ApplicationDbContext : DbContext
             });
             
             // Índices para optimizar consultas frecuentes de Orders
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.CustomerId);
             entity.HasIndex(e => e.DeliveryPersonId);
             entity.HasIndex(e => e.TableId);
             entity.HasIndex(e => e.IsArchived);
-            entity.HasIndex(e => new { e.Status, e.CreatedAt }); // Índice compuesto para consultas por estado y fecha
-            entity.HasIndex(e => new { e.CustomerId, e.IsArchived }); // Índice compuesto para consultas de cliente
-            entity.HasIndex(e => new { e.DeliveryPersonId, e.Status }); // Índice compuesto para consultas de repartidor
+            entity.HasIndex(e => new { e.RestaurantId, e.Status, e.CreatedAt }); // Índice compuesto para consultas por restaurante, estado y fecha
+            entity.HasIndex(e => new { e.RestaurantId, e.CustomerId, e.IsArchived }); // Índice compuesto para consultas de cliente por restaurante
+            entity.HasIndex(e => new { e.RestaurantId, e.DeliveryPersonId, e.Status }); // Índice compuesto para consultas de repartidor por restaurante
         });
 
         // Configurar WebhookSubscription
@@ -247,9 +302,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Role).IsRequired().HasMaxLength(50).HasDefaultValue("Employee");
             
-            // Índices únicos
-            entity.HasIndex(e => e.Username).IsUnique();
-            entity.HasIndex(e => e.Email).IsUnique();
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Admins)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // Índices únicos por restaurante (mismo username no puede repetirse en un restaurante)
+            entity.HasIndex(e => new { e.RestaurantId, e.Username }).IsUnique();
+            entity.HasIndex(e => new { e.RestaurantId, e.Email }).IsUnique();
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.Role);
         });
 
@@ -287,8 +349,15 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Description).HasMaxLength(500);
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Spaces)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
             // Índices para optimizar consultas
-            entity.HasIndex(e => e.Name);
+            entity.HasIndex(e => e.RestaurantId);
+            entity.HasIndex(e => new { e.RestaurantId, e.Name });
             entity.HasIndex(e => e.IsActive);
         });
 
@@ -306,6 +375,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Notes).HasMaxLength(500);
             entity.Property(e => e.OrderPlacedAt).HasColumnType("datetime2");
             
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.Tables)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
             // Relación con Space (opcional)
             entity.HasOne(e => e.Space)
                   .WithMany(s => s.Tables)
@@ -313,11 +388,12 @@ public class ApplicationDbContext : DbContext
                   .OnDelete(DeleteBehavior.SetNull);
             
             // Índices para optimizar consultas
-            entity.HasIndex(e => e.Number);
+            entity.HasIndex(e => e.RestaurantId);
+            entity.HasIndex(e => new { e.RestaurantId, e.Number });
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.SpaceId);
-            entity.HasIndex(e => new { e.IsActive, e.Status }); // Índice compuesto para consultas comunes
+            entity.HasIndex(e => new { e.RestaurantId, e.IsActive, e.Status }); // Índice compuesto para consultas comunes
         });
 
         // Configurar CashRegister
@@ -334,11 +410,18 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ClosedBy).HasMaxLength(200);
             entity.Property(e => e.Notes).HasMaxLength(1000);
             
+            // Relación con Restaurant
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.CashRegisters)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
             // Índices para optimizar consultas
+            entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.IsOpen);
             entity.HasIndex(e => e.OpenedAt);
             entity.HasIndex(e => e.ClosedAt);
-            entity.HasIndex(e => new { e.IsOpen, e.OpenedAt }); // Índice compuesto para consultas de caja abierta
+            entity.HasIndex(e => new { e.RestaurantId, e.IsOpen, e.OpenedAt }); // Índice compuesto para consultas de caja abierta por restaurante
         });
 
         // Configurar DeliveryCashRegister

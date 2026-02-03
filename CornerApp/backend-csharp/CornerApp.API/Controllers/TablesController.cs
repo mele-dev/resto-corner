@@ -30,13 +30,15 @@ public class TablesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todas las mesas activas
+    /// Obtiene todas las mesas activas (solo del restaurante del usuario)
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Table>>> GetTables([FromQuery] string? status = null)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var query = _context.Tables
-            .Where(t => t.IsActive);
+            .Where(t => t.IsActive && t.RestaurantId == restaurantId);
 
         if (!string.IsNullOrEmpty(status))
         {
@@ -84,8 +86,10 @@ public class TablesController : ControllerBase
         try
         {
             // Verificar si la mesa tiene pedidos activos (cualquier estado que no sea completed o cancelled)
+            // Filtrar también por RestaurantId para seguridad multi-tenant
             var activeOrders = await _context.Orders
                 .Where(o => o.TableId == table.Id 
+                    && o.RestaurantId == table.RestaurantId
                     && !o.IsArchived 
                     && o.Status != OrderConstants.STATUS_COMPLETED 
                     && o.Status != OrderConstants.STATUS_CANCELLED)
@@ -134,10 +138,14 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
+            
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             var oldStatus = table.Status;
@@ -180,11 +188,15 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
+            
             if (table == null)
             {
                 _logger.LogWarning("Mesa {TableId} no encontrada al obtener pedidos", id);
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             // Obtener todos los pedidos de la mesa que NO estén archivados
@@ -192,7 +204,10 @@ public class TablesController : ControllerBase
             var orders = await _context.Orders
                 .Include(o => o.Items)
                 .Include(o => o.Table)
-                .Where(o => o.TableId == id && !o.IsArchived && o.Status != OrderConstants.STATUS_CANCELLED)
+                .Where(o => o.TableId == id && 
+                           o.RestaurantId == restaurantId &&
+                           !o.IsArchived && 
+                           o.Status != OrderConstants.STATUS_CANCELLED)
                 .OrderByDescending(o => o.CreatedAt)
                 .ToListAsync();
 
@@ -223,13 +238,15 @@ public class TablesController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Table>> GetTable(int id)
     {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        
         var table = await _context.Tables
-            .Include(t => t.Orders.Where(o => !o.IsArchived))
-            .FirstOrDefaultAsync(t => t.Id == id);
+            .Include(t => t.Orders.Where(o => !o.IsArchived && o.RestaurantId == restaurantId))
+            .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
 
         if (table == null)
         {
-            return NotFound(new { error = "Mesa no encontrada" });
+            return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
         }
 
         // Sincronizar estado de la mesa con pedidos activos
@@ -266,17 +283,34 @@ public class TablesController : ControllerBase
     {
         try
         {
-            // Validar que el número de mesa no exista
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Validar que el número de mesa no exista en el mismo restaurante
             var existingTable = await _context.Tables
-                .FirstOrDefaultAsync(t => t.Number.ToLower() == request.Number.ToLower() && t.IsActive);
+                .FirstOrDefaultAsync(t => t.RestaurantId == restaurantId && 
+                                         t.Number.ToLower() == request.Number.ToLower() && 
+                                         t.IsActive);
 
             if (existingTable != null)
             {
-                return BadRequest(new { error = "Ya existe una mesa con ese número" });
+                return BadRequest(new { error = "Ya existe una mesa con ese número en tu restaurante" });
+            }
+
+            // Si se proporciona SpaceId, verificar que pertenezca al mismo restaurante
+            if (request.SpaceId.HasValue)
+            {
+                var space = await _context.Spaces
+                    .FirstOrDefaultAsync(s => s.Id == request.SpaceId.Value && s.RestaurantId == restaurantId);
+                
+                if (space == null)
+                {
+                    return BadRequest(new { error = "El espacio seleccionado no existe o no pertenece a tu restaurante" });
+                }
             }
 
             var table = new Table
             {
+                RestaurantId = restaurantId,
                 Number = request.Number.Trim(),
                 Capacity = request.Capacity,
                 Location = request.Location?.Trim(),
@@ -308,23 +342,28 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
+            
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
-            // Validar que el número de mesa no exista en otra mesa
+            // Validar que el número de mesa no exista en otra mesa del mismo restaurante
             if (!string.IsNullOrEmpty(request.Number))
             {
                 var existingTable = await _context.Tables
-                    .FirstOrDefaultAsync(t => t.Number.ToLower() == request.Number.ToLower() 
+                    .FirstOrDefaultAsync(t => t.RestaurantId == restaurantId &&
+                                             t.Number.ToLower() == request.Number.ToLower() 
                         && t.Id != id 
                         && t.IsActive);
 
                 if (existingTable != null)
                 {
-                    return BadRequest(new { error = "Ya existe una mesa con ese número" });
+                    return BadRequest(new { error = "Ya existe una mesa con ese número en tu restaurante" });
                 }
 
                 table.Number = request.Number.Trim();
@@ -342,6 +381,15 @@ public class TablesController : ControllerBase
 
             if (request.SpaceId.HasValue)
             {
+                // Verificar que el espacio pertenezca al mismo restaurante
+                var space = await _context.Spaces
+                    .FirstOrDefaultAsync(s => s.Id == request.SpaceId.Value && s.RestaurantId == restaurantId);
+                
+                if (space == null)
+                {
+                    return BadRequest(new { error = "El espacio seleccionado no existe o no pertenece a tu restaurante" });
+                }
+                
                 table.SpaceId = request.SpaceId.Value;
             }
             else if (request.SpaceId == null)
@@ -396,15 +444,20 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
+            
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             // Verificar si hay pedidos activos en esta mesa
             var hasActiveOrders = await _context.Orders
                 .AnyAsync(o => o.TableId == id 
+                    && o.RestaurantId == restaurantId
                     && !o.IsArchived 
                     && (o.Status == "Pending" || o.Status == "Preparing" || o.Status == "Ready"));
 
@@ -647,9 +700,12 @@ public class TablesController : ControllerBase
     {
         try
         {
-            // Verificar que la caja esté abierta
+            // Obtener RestaurantId del usuario autenticado
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+
+            // Verificar que la caja esté abierta y pertenezca al mismo restaurante
             var openCashRegister = await _context.CashRegisters
-                .Where(c => c.IsOpen)
+                .Where(c => c.IsOpen && c.RestaurantId == restaurantId)
                 .FirstOrDefaultAsync();
 
             if (openCashRegister == null)
@@ -657,11 +713,13 @@ public class TablesController : ControllerBase
                 return BadRequest(new { error = "Debe abrir la caja antes de crear pedidos desde mesas" });
             }
 
-            // Verificar que la mesa existe
-            var table = await _context.Tables.FindAsync(id);
+            // Verificar que la mesa existe y pertenece al mismo restaurante
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
+            
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             if (!table.IsActive)
@@ -691,18 +749,18 @@ public class TablesController : ControllerBase
                 return BadRequest(new { error = "El pedido debe contener al menos un item" });
             }
 
-            // Validar productos y obtener información de categorías
+            // Validar productos y obtener información de categorías (solo del restaurante)
             var productIds = orderRequest.Items.Select(item => item.Id).Distinct().ToList();
             var existingProducts = await _context.Products
                 .Include(p => p.Category)
-                .Where(p => productIds.Contains(p.Id))
+                .Where(p => productIds.Contains(p.Id) && p.RestaurantId == restaurantId)
                 .ToListAsync();
             
             var missingProductIds = productIds.Except(existingProducts.Select(p => p.Id)).ToList();
             if (missingProductIds.Any())
             {
                 return BadRequest(new { 
-                    error = $"Los siguientes productos no existen: {string.Join(", ", missingProductIds)}" 
+                    error = $"Los siguientes productos no existen o no pertenecen a tu restaurante: {string.Join(", ", missingProductIds)}" 
                 });
             }
 
@@ -763,6 +821,7 @@ public class TablesController : ControllerBase
             // Crear el pedido
             var order = new Order
             {
+                RestaurantId = restaurantId, // Asignar RestaurantId
                 CustomerName = orderRequest.CustomerName,
                 CustomerPhone = string.Empty,
                 CustomerEmail = string.Empty,
@@ -890,17 +949,7 @@ public class TablesController : ControllerBase
     {
         try
         {
-            // Verificar que la caja esté abierta
-            var openCashRegister = await _context.CashRegisters
-                .Where(c => c.IsOpen)
-                .FirstOrDefaultAsync();
-
-            if (openCashRegister == null)
-            {
-                return BadRequest(new { error = "Debe abrir la caja antes de crear pedidos desde mesas" });
-            }
-
-            // Verificar que la mesa existe
+            // Verificar que la mesa existe y obtener su RestaurantId
             var table = await _context.Tables.FindAsync(id);
             if (table == null)
             {
@@ -910,6 +959,23 @@ public class TablesController : ControllerBase
             if (!table.IsActive)
             {
                 return BadRequest(new { error = "La mesa no está activa" });
+            }
+
+            // Obtener RestaurantId de la mesa
+            var restaurantId = table.RestaurantId;
+            if (restaurantId <= 0)
+            {
+                return BadRequest(new { error = "La mesa no tiene un restaurante asignado válido" });
+            }
+
+            // Verificar que la caja esté abierta y pertenezca al mismo restaurante
+            var openCashRegister = await _context.CashRegisters
+                .Where(c => c.IsOpen && c.RestaurantId == restaurantId)
+                .FirstOrDefaultAsync();
+
+            if (openCashRegister == null)
+            {
+                return BadRequest(new { error = "Debe abrir la caja antes de crear pedidos desde mesas" });
             }
 
             // Crear el request para AdminOrdersController
@@ -930,18 +996,18 @@ public class TablesController : ControllerBase
                 return BadRequest(new { error = "El pedido debe contener al menos un item" });
             }
 
-            // Validar productos y obtener información de categorías
+            // Validar productos y obtener información de categorías (solo del restaurante)
             var productIds = orderRequest.Items.Select(item => item.Id).Distinct().ToList();
             var existingProducts = await _context.Products
                 .Include(p => p.Category)
-                .Where(p => productIds.Contains(p.Id))
+                .Where(p => productIds.Contains(p.Id) && p.RestaurantId == restaurantId)
                 .ToListAsync();
             
             var missingProductIds = productIds.Except(existingProducts.Select(p => p.Id)).ToList();
             if (missingProductIds.Any())
             {
                 return BadRequest(new { 
-                    error = $"Los siguientes productos no existen: {string.Join(", ", missingProductIds)}" 
+                    error = $"Los siguientes productos no existen o no pertenecen al restaurante: {string.Join(", ", missingProductIds)}" 
                 });
             }
 
@@ -955,7 +1021,7 @@ public class TablesController : ControllerBase
             // Obtener método de pago
             var paymentMethodName = orderRequest.PaymentMethod ?? PaymentConstants.METHOD_CASH;
             var paymentMethod = await _context.PaymentMethods
-                .FirstOrDefaultAsync(pm => pm.Name.ToLower() == paymentMethodName.ToLower() && pm.IsActive);
+                .FirstOrDefaultAsync(pm => pm.Name != null && pm.Name.ToLower() == paymentMethodName.ToLower() && pm.IsActive);
             
             if (paymentMethod == null)
             {
@@ -996,6 +1062,7 @@ public class TablesController : ControllerBase
             // Crear el pedido
             var order = new Order
             {
+                RestaurantId = restaurantId, // Asignar RestaurantId desde la mesa
                 CustomerName = orderRequest.CustomerName,
                 CustomerPhone = string.Empty,
                 CustomerEmail = string.Empty,

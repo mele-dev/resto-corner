@@ -83,7 +83,7 @@ public interface IAdminDashboardService
     /// <summary>
     /// Crea una nueva categoría
     /// </summary>
-    Task<Category> CreateCategoryAsync(string name, string? description, string? icon);
+    Task<Category> CreateCategoryAsync(int restaurantId, string name, string? description, string? icon);
 
     /// <summary>
     /// Actualiza una categoría existente

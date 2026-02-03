@@ -3,6 +3,11 @@ namespace CornerApp.API.Models;
 public class DeliveryPerson
 {
     public int Id { get; set; }
+    
+    // Multi-tenant: cada repartidor pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     public string Name { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string? Email { get; set; }

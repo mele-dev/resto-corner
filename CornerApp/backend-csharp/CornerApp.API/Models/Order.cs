@@ -6,6 +6,10 @@ public class Order
 {
     public int Id { get; set; }
     
+    // Multi-tenant: cada pedido pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     // Relación con Customer (opcional - para clientes registrados)
     public int? CustomerId { get; set; }
     public Customer? Customer { get; set; }

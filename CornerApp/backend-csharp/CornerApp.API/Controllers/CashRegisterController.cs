@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Models;
 using CornerApp.API.Data;
 using CornerApp.API.Constants;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -40,11 +41,13 @@ public class CashRegisterController : ControllerBase
         {
             _logger.LogInformation("Iniciando consulta de estado de caja");
             
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             CashRegister? openCashRegister = null;
             try
             {
                 openCashRegister = await _context.CashRegisters
-                    .Where(c => c.IsOpen)
+                    .Where(c => c.RestaurantId == restaurantId && c.IsOpen)
                     .OrderByDescending(c => c.OpenedAt)
                     .FirstOrDefaultAsync();
             }
@@ -69,7 +72,8 @@ public class CashRegisterController : ControllerBase
             try
             {
                 orders = await _context.Orders
-                    .Where(o => o.CreatedAt >= openCashRegister.OpenedAt
+                    .Where(o => o.RestaurantId == restaurantId
+                        && o.CreatedAt >= openCashRegister.OpenedAt
                         && o.Status == OrderConstants.STATUS_COMPLETED
                         && !o.IsArchived)
                     .ToListAsync();
@@ -163,9 +167,11 @@ public class CashRegisterController : ControllerBase
     {
         try
         {
-            // Verificar que no haya una caja abierta
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar que no haya una caja abierta para este restaurante
             var existingOpenCashRegister = await _context.CashRegisters
-                .Where(c => c.IsOpen)
+                .Where(c => c.RestaurantId == restaurantId && c.IsOpen)
                 .FirstOrDefaultAsync();
 
             if (existingOpenCashRegister != null)
@@ -180,6 +186,7 @@ public class CashRegisterController : ControllerBase
 
             var cashRegister = new CashRegister
             {
+                RestaurantId = restaurantId,
                 OpenedAt = DateTime.UtcNow,
                 InitialAmount = request.InitialAmount,
                 IsOpen = true,
@@ -211,9 +218,11 @@ public class CashRegisterController : ControllerBase
     {
         try
         {
-            // Obtener la caja abierta
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Obtener la caja abierta para este restaurante
             var cashRegister = await _context.CashRegisters
-                .Where(c => c.IsOpen)
+                .Where(c => c.RestaurantId == restaurantId && c.IsOpen)
                 .OrderByDescending(c => c.OpenedAt)
                 .FirstOrDefaultAsync();
 
@@ -224,7 +233,8 @@ public class CashRegisterController : ControllerBase
 
             // Verificar que no haya mesas con pedidos pendientes de ESTA sesión de caja
             var pendingTableOrders = await _context.Orders
-                .Where(o => o.TableId != null
+                .Where(o => o.RestaurantId == restaurantId
+                    && o.TableId != null
                     && o.CreatedAt >= cashRegister.OpenedAt  // Solo pedidos de esta sesión
                     && o.Status != OrderConstants.STATUS_COMPLETED
                     && o.Status != OrderConstants.STATUS_CANCELLED
@@ -236,7 +246,7 @@ public class CashRegisterController : ControllerBase
             {
                 var tableIds = pendingTableOrders.Select(o => o.TableId).Distinct().ToList();
                 var tables = await _context.Tables
-                    .Where(t => tableIds.Contains(t.Id))
+                    .Where(t => t.RestaurantId == restaurantId && tableIds.Contains(t.Id))
                     .Select(t => t.Number)
                     .ToListAsync();
 
@@ -252,7 +262,8 @@ public class CashRegisterController : ControllerBase
             // Solo contar pedidos creados DESPUÉS de que se abrió esta caja
             // Incluir pedidos archivados que fueron completados durante esta sesión (fueron cobrados)
             var orders = await _context.Orders
-                .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                .Where(o => o.RestaurantId == restaurantId
+                    && o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
                     && o.Status == OrderConstants.STATUS_COMPLETED)
                     // Removido: && !o.IsArchived - Ahora incluimos pedidos archivados que fueron cobrados
                 .ToListAsync();
@@ -302,7 +313,10 @@ public class CashRegisterController : ControllerBase
     {
         try
         {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
             var query = _context.CashRegisters
+                .Where(c => c.RestaurantId == restaurantId)
                 .OrderByDescending(c => c.OpenedAt)
                 .AsQueryable();
 
@@ -337,10 +351,14 @@ public class CashRegisterController : ControllerBase
     {
         try
         {
-            var cashRegister = await _context.CashRegisters.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var cashRegister = await _context.CashRegisters
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurantId);
+            
             if (cashRegister == null)
             {
-                return NotFound(new { error = "Caja no encontrada" });
+                return NotFound(new { error = "Caja no encontrada o no pertenece a tu restaurante" });
             }
 
             var now = DateTime.UtcNow;
@@ -351,7 +369,8 @@ public class CashRegisterController : ControllerBase
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.Items)
-                .Where(o => o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
+                .Where(o => o.RestaurantId == restaurantId
+                    && o.CreatedAt >= cashRegister.OpenedAt  // Desde que se abrió esta caja
                     && (cashRegister.ClosedAt == null || o.CreatedAt <= cashRegister.ClosedAt.Value)  // Hasta que se cerró (o ahora si está abierta)
                     && o.Status == OrderConstants.STATUS_COMPLETED)
                     // Removido: && !o.IsArchived - Ahora incluimos pedidos archivados que fueron cobrados

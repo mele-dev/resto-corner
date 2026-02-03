@@ -3,6 +3,8 @@ namespace CornerApp.API.Models;
 public class Admin
 {
     public int Id { get; set; }
+    public int RestaurantId { get; set; } // Multi-tenant: cada admin pertenece a un restaurante
+    public Restaurant? Restaurant { get; set; }
     public string Username { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;

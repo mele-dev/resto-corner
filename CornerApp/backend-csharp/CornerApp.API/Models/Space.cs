@@ -7,6 +7,10 @@ public class Space
 {
     public int Id { get; set; }
     
+    // Multi-tenant: cada espacio pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     /// <summary>
     /// Nombre del espacio (ej: "Planta 1", "Terraza", "Fondo", "Exterior")
     /// </summary>

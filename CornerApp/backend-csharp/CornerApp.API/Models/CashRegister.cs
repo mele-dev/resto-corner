@@ -7,6 +7,10 @@ public class CashRegister
 {
     public int Id { get; set; }
     
+    // Multi-tenant: cada caja pertenece a un restaurante
+    public int RestaurantId { get; set; }
+    public Restaurant? Restaurant { get; set; }
+    
     /// <summary>
     /// Fecha y hora de apertura de la caja
     /// </summary>

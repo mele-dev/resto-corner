@@ -32,10 +32,12 @@ public class UpdateProfileRequest
 }
 
 /// <summary>
-/// DTO para login de administrador
+/// DTO para login de administrador (multi-tenant)
 /// </summary>
 public class AdminLoginRequest
 {
+    public int? RestaurantId { get; set; } // Opcional para superadmin
+    
     [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El usuario es requerido")]
     public string Username { get; set; } = string.Empty;
     
