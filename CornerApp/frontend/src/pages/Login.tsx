@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast/ToastContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
 
 export default function LoginPage() {
+  const { t } = useLanguage();
   const [restaurantId, setRestaurantId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -18,20 +20,20 @@ export default function LoginPage() {
     e.preventDefault();
     
     if (!username || !password) {
-      showToast('Por favor completa usuario y contraseña', 'error');
+      showToast(t('login.requiredFields'), 'error');
       return;
     }
 
     // Si no hay restaurantId, verificar si es superadmin
     if (!restaurantId) {
       if (username.toLowerCase() !== 'admin') {
-        showToast('El ID del restaurante es requerido para usuarios normales', 'error');
+        showToast(t('login.requiredRestaurantId'), 'error');
         return;
       }
     } else {
       const restaurantIdNum = parseInt(restaurantId, 10);
       if (isNaN(restaurantIdNum) || restaurantIdNum <= 0) {
-        showToast('El ID del restaurante debe ser un número válido', 'error');
+        showToast(t('login.invalidRestaurantId'), 'error');
         return;
       }
     }
@@ -40,7 +42,7 @@ export default function LoginPage() {
       setLoading(true);
       const restaurantIdNum = restaurantId ? parseInt(restaurantId, 10) : null;
       await login(restaurantIdNum, username, password);
-      showToast('¡Bienvenido!', 'success');
+      showToast(t('login.welcome'), 'success');
       // Verificar si es superadmin para redirigir correctamente
       const savedUser = localStorage.getItem('admin_user');
       if (savedUser) {
@@ -54,7 +56,7 @@ export default function LoginPage() {
         navigate('/admin');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
+      const errorMessage = error instanceof Error ? error.message : t('login.error');
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -65,10 +67,10 @@ export default function LoginPage() {
     try {
       setLoading(true);
       await login(null, 'admin', 'password123');
-      showToast('¡Bienvenido SuperAdmin!', 'success');
+      showToast(t('login.welcomeSuperAdmin'), 'success');
       navigate('/superadmin');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
+      const errorMessage = error instanceof Error ? error.message : t('login.error');
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -96,22 +98,22 @@ export default function LoginPage() {
         
         {/* Contenido decorativo */}
         <div className="relative z-10 flex flex-col justify-center items-center p-12 text-white max-w-lg mx-auto w-full">
-          <h2 className="text-4xl font-bold mb-4 text-center">Bienvenido</h2>
-          <p className="text-xl text-blue-200 text-center mb-12">Gestiona tu negocio desde un solo lugar</p>
+          <h2 className="text-4xl font-bold mb-4 text-center">{t('dashboard.welcome')}</h2>
+          <p className="text-xl text-blue-200 text-center mb-12">{t('dashboard.manageOrdersDesc')}</p>
           
           {/* Iconos decorativos */}
           <div className="grid grid-cols-3 gap-6 mt-8 w-full">
             <div className="flex flex-col items-center p-4 bg-white/10 rounded-xl backdrop-blur-sm">
               <ChefHat size={32} className="mb-2" />
-              <span className="text-sm">Cocina</span>
+              <span className="text-sm">{t('nav.kitchen')}</span>
             </div>
             <div className="flex flex-col items-center p-4 bg-white/10 rounded-xl backdrop-blur-sm">
               <ShoppingBag size={32} className="mb-2" />
-              <span className="text-sm">Pedidos</span>
+              <span className="text-sm">{t('orders.title')}</span>
             </div>
             <div className="flex flex-col items-center p-4 bg-white/10 rounded-xl backdrop-blur-sm">
               <Truck size={32} className="mb-2" />
-              <span className="text-sm">Entregas</span>
+              <span className="text-sm">{t('nav.deliveryPersons')}</span>
             </div>
           </div>
         </div>
@@ -132,7 +134,7 @@ export default function LoginPage() {
 
           {/* Título */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center" style={{ color: 'var(--tw-ring-offset-color)' }}>Iniciar Sesión</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center" style={{ color: 'var(--tw-ring-offset-color)' }}>{t('login.title')}</h1>
           </div>
 
           {/* Formulario */}
@@ -140,7 +142,7 @@ export default function LoginPage() {
             {/* ID Restaurante */}
             <div>
               <label htmlFor="restaurantId" className="block text-sm font-semibold text-white mb-2">
-                ID Restaurante <span className="text-gray-400 text-xs">(opcional para SuperAdmin)</span>
+                {t('login.restaurantId')} <span className="text-gray-400 text-xs">({t('common.optional')} {t('login.superAdminLogin')})</span>
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -152,7 +154,7 @@ export default function LoginPage() {
                   value={restaurantId}
                   onChange={(e) => setRestaurantId(e.target.value)}
                   className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
-                  placeholder="Ingresa el ID del restaurante"
+                  placeholder={t('login.restaurantId')}
                   autoComplete="off"
                   disabled={loading}
                   min="1"
@@ -163,7 +165,7 @@ export default function LoginPage() {
             {/* Usuario */}
             <div>
               <label htmlFor="username" className="block text-sm font-semibold text-white mb-2">
-                Usuario
+                {t('login.username')}
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -175,7 +177,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
-                  placeholder="Ingresa tu usuario"
+                  placeholder={t('login.username')}
                   autoComplete="username"
                   disabled={loading}
                 />
@@ -185,7 +187,7 @@ export default function LoginPage() {
             {/* Contraseña */}
             <div>
               <label htmlFor="password" className="block text-sm font-semibold text-white mb-2">
-                Contraseña
+                {t('login.password')}
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -197,7 +199,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
-                  placeholder="Ingresa tu contraseña"
+                  placeholder={t('login.password')}
                   autoComplete="current-password"
                   disabled={loading}
                 />
@@ -213,12 +215,12 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Iniciando sesión...</span>
+                  <span>{t('common.loading')}</span>
                 </>
               ) : (
                 <>
                   <LogIn size={22} />
-                  <span>Acceder al Panel</span>
+                  <span>{t('login.login')}</span>
                 </>
               )}
             </button>
@@ -233,7 +235,7 @@ export default function LoginPage() {
               className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-600 text-white rounded-xl hover:from-yellow-600 hover:to-orange-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
             >
               <Crown size={18} />
-              <span>Acceso SuperAdmin</span>
+              <span>{t('login.superAdminLogin')}</span>
             </button>
           </div>
 

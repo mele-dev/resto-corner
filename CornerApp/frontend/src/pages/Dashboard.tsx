@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface Stats {
   pendingOrders: number;
@@ -26,6 +27,7 @@ interface Stats {
 }
 
 export default function Dashboard() {
+  const { t } = useLanguage();
   const [stats, setStats] = useState<Stats>({
     pendingOrders: 0,
     preparingOrders: 0,
@@ -64,7 +66,7 @@ export default function Dashboard() {
         pendingReceiptsCount: (orderStats as any).pendingReceiptsCount || 0,
       });
     } catch (error) {
-      showToast('Error al cargar estadísticas', 'error');
+      showToast(t('dashboard.errorLoadingStats'), 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -73,37 +75,37 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      title: 'Pedidos Pendientes',
+      title: t('dashboard.pendingOrders'),
       value: stats.pendingOrders,
       icon: Clock,
       color: 'bg-yellow-500',
       link: '/admin/orders?status=pending',
     },
     {
-      title: 'En Preparación',
+      title: t('dashboard.preparingOrders'),
       value: stats.preparingOrders,
       icon: ChefHat,
       color: 'bg-orange-500',
       link: '/admin/orders?status=preparing',
     },
     {
-      title: 'En Camino',
+      title: t('dashboard.deliveringOrders'),
       value: stats.deliveringOrders,
       icon: Truck,
       color: 'bg-blue-500',
       link: '/admin/orders?status=delivering',
     },
     {
-      title: 'Ventas Hoy',
+      title: t('dashboard.salesToday'),
       value: `$${stats.totalToday.toFixed(2)}`,
       icon: DollarSign,
       color: 'bg-green-500',
       link: '/admin/orders',
     },
     {
-      title: 'Comprobantes Pendientes',
+      title: t('dashboard.pendingReceipts'),
       value: stats.pendingReceiptsCount,
-      icon: DollarSign, // Cambiaré a un icono más apropiado si es posible, o usaré DollarSign con otro color
+      icon: DollarSign,
       color: stats.pendingReceiptsCount > 0 ? 'bg-red-500 animate-pulse' : 'bg-gray-400',
       link: '/admin/active-orders?filter=receipts',
     },
@@ -111,29 +113,29 @@ export default function Dashboard() {
 
   const quickLinks = [
     {
-      title: 'Gestionar Pedidos',
-      description: 'Ver y administrar todos los pedidos',
+      title: t('dashboard.manageOrders'),
+      description: t('dashboard.manageOrdersDesc'),
       icon: ShoppingCart,
       link: '/admin/orders',
       color: 'from-blue-500 to-blue-600',
     },
     {
-      title: 'Productos',
-      description: `${stats.totalProducts} productos registrados`,
+      title: t('dashboard.products'),
+      description: t('dashboard.productsDesc', { count: stats.totalProducts }),
       icon: Package,
       link: '/admin/products',
       color: 'from-purple-500 to-purple-600',
     },
     {
-      title: 'Categorías',
-      description: `${stats.totalCategories} categorías activas`,
+      title: t('dashboard.categories'),
+      description: t('dashboard.categoriesDesc', { count: stats.totalCategories }),
       icon: FolderOpen,
       link: '/admin/categories',
       color: 'from-pink-500 to-pink-600',
     },
     {
-      title: 'Repartidores',
-      description: `${stats.totalDeliveryPersons} repartidores`,
+      title: t('dashboard.deliveryPersons'),
+      description: t('dashboard.deliveryPersonsDesc', { count: stats.totalDeliveryPersons }),
       icon: Users,
       link: '/admin/delivery-persons',
       color: 'from-teal-500 to-teal-600',

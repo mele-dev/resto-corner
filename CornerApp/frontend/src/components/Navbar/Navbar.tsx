@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../api/client';
 import Logo from '../Logo/Logo';
 
@@ -30,50 +31,51 @@ interface NavItem {
   subItems?: { path: string; label: string; icon: React.ElementType }[];
 }
 
-const navItems: NavItem[] = [
-  // Activos: muestra todos los pedidos (tanto de salón como de delivery)
-  // { path: '/admin/active-orders', label: 'Activos', icon: ClipboardList }, // Temporalmente deshabilitado - pedidos van directo a cocina
-  { path: '/admin/payments', label: 'Pagos', icon: CheckCircle },
-  { path: '/admin/kitchen', label: 'Cocina', icon: ChefHat },
-  //{ path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
-  { path: '/admin/tables', label: 'Mesas', icon: TableIcon },
-
-  { path: '/admin/repartidores', label: 'Repartidores', icon: Truck },
-  { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  {
-    path: '/admin/mas',
-    label: 'Mas',
-    icon: MoreHorizontal,
-    subItems: [
-      { path: '/admin/delivery-persons', label: 'Repartidores', icon: Truck },
-      { path: '/admin/reports', label: 'Reportes', icon: BarChart3 },
-      { path: '/admin/orders', label: 'Historial', icon: History },
-    ]
-  },
-  {
-    path: '/admin/settings',
-    label: 'Config',
-    icon: Settings,
-    subItems: [
-      //{ path: '/admin/tables', label: 'Mesas', icon: TableIcon },
-      // { path: '/admin/settings/business', label: 'Datos del Negocio', icon: Store }, // Temporalmente deshabilitado
-      // { path: '/admin/settings/delivery-zones', label: 'Zonas de Entrega', icon: MapPin }, // Temporalmente deshabilitado
-      { path: '/admin/products', label: 'Productos', icon: Package },
-      { path: '/admin/categories', label: 'Categorías', icon: FolderOpen },
-      { path: '/admin/customers', label: 'Clientes', icon: Users },
-      { path: '/admin/users', label: 'Usuarios', icon: Shield },
-      { path: '/admin/settings/payments', label: 'Métodos de Pago', icon: CreditCard },
-      //{ path: '/admin/settings/email', label: 'Configuración de Email', icon: Mail },
-     // { path: '/admin/settings/rewards', label: 'Premios', icon: Gift },
-      { path: '/admin/settings/info', label: 'Información', icon: Info },
-    ]
-  },
-];
-
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
+
+  const navItems: NavItem[] = [
+    // Activos: muestra todos los pedidos (tanto de salón como de delivery)
+    // { path: '/admin/active-orders', label: 'Activos', icon: ClipboardList }, // Temporalmente deshabilitado - pedidos van directo a cocina
+    { path: '/admin/payments', label: t('nav.payments'), icon: CheckCircle },
+    { path: '/admin/kitchen', label: t('nav.kitchen'), icon: ChefHat },
+    //{ path: '/admin/mesas-ver', label: 'Mesas', icon: TableIcon },
+    { path: '/admin/tables', label: t('nav.tables'), icon: TableIcon },
+
+    { path: '/admin/repartidores', label: t('nav.deliveryPersons'), icon: Truck },
+    { path: '/admin', label: t('nav.dashboard'), icon: LayoutDashboard },
+    {
+      path: '/admin/mas',
+      label: t('nav.more'),
+      icon: MoreHorizontal,
+      subItems: [
+        { path: '/admin/delivery-persons', label: t('nav.deliveryPersons'), icon: Truck },
+        { path: '/admin/reports', label: t('nav.reports'), icon: BarChart3 },
+        { path: '/admin/orders', label: t('nav.history'), icon: History },
+      ]
+    },
+    {
+      path: '/admin/settings',
+      label: t('nav.config'),
+      icon: Settings,
+      subItems: [
+        //{ path: '/admin/tables', label: 'Mesas', icon: TableIcon },
+        // { path: '/admin/settings/business', label: 'Datos del Negocio', icon: Store }, // Temporalmente deshabilitado
+        // { path: '/admin/settings/delivery-zones', label: 'Zonas de Entrega', icon: MapPin }, // Temporalmente deshabilitado
+        { path: '/admin/products', label: t('nav.products'), icon: Package },
+        { path: '/admin/categories', label: t('nav.categories'), icon: FolderOpen },
+        { path: '/admin/customers', label: t('nav.customers'), icon: Users },
+        { path: '/admin/users', label: t('nav.users'), icon: Shield },
+        { path: '/admin/settings/payments', label: t('nav.paymentMethods'), icon: CreditCard },
+        //{ path: '/admin/settings/email', label: 'Configuración de Email', icon: Mail },
+       // { path: '/admin/settings/rewards', label: 'Premios', icon: Gift },
+        { path: '/admin/settings/info', label: t('nav.info'), icon: Info },
+      ]
+    },
+  ];
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [pendingReceiptsCount, setPendingReceiptsCount] = useState(0); // Para Pagos (comprobantes pendientes)
   // const [activeOrdersCount, setActiveOrdersCount] = useState(0); // Para Activos (pedidos activos) - Temporalmente deshabilitado
@@ -266,10 +268,10 @@ export default function Navbar() {
                 navigate('/login');
               }}
               className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
-              title="Cerrar sesión"
+              title={t('nav.logout')}
             >
               <LogOut size={18} />
-              <span className="hidden sm:inline">Salir</span>
+              <span className="hidden sm:inline">{t('nav.logout')}</span>
             </button>
           </div>
         </div>
