@@ -52,7 +52,7 @@ export default function Navbar() {
       label: t('nav.more'),
       icon: MoreHorizontal,
       subItems: [
-        { path: '/admin/delivery-persons', label: t('nav.deliveryPersons'), icon: Truck },
+        //{ path: '/admin/delivery-persons', label: t('nav.deliveryPersons'), icon: Truck },
         { path: '/admin/reports', label: t('nav.reports'), icon: BarChart3 },
         { path: '/admin/orders', label: t('nav.history'), icon: History },
       ]
@@ -66,6 +66,7 @@ export default function Navbar() {
         // { path: '/admin/settings/business', label: 'Datos del Negocio', icon: Store }, // Temporalmente deshabilitado
         // { path: '/admin/settings/delivery-zones', label: 'Zonas de Entrega', icon: MapPin }, // Temporalmente deshabilitado
         { path: '/admin/products', label: t('nav.products'), icon: Package },
+        { path: '/admin/delivery-persons', label: t('nav.deliveryPersons'), icon: Truck },
         { path: '/admin/categories', label: t('nav.categories'), icon: FolderOpen },
         { path: '/admin/customers', label: t('nav.customers'), icon: Users },
         { path: '/admin/users', label: t('nav.users'), icon: Shield },
