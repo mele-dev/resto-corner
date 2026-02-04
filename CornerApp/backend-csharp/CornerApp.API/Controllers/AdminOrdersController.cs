@@ -609,10 +609,13 @@ public class AdminOrdersController : ControllerBase
 
             if (customerId.HasValue)
             {
-                var customer = await _context.Customers.FindAsync(customerId.Value);
+                var customer = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.Id == customerId.Value && c.RestaurantId == restaurantId);
                 if (customer != null)
                 {
-                    var businessInfo = await _context.BusinessInfo.FirstOrDefaultAsync();
+                    var businessInfo = await _context.BusinessInfo
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync();
                     var pointsToAdd = businessInfo?.PointsPerOrder ?? AppConstants.DEFAULT_POINTS_PER_ORDER;
                     
                     customer.Points += pointsToAdd;
@@ -621,10 +624,11 @@ public class AdminOrdersController : ControllerBase
                 }
             }
 
-            // Si el pedido es de una mesa, actualizar el estado de la mesa
+            // Si el pedido es de una mesa, actualizar el estado de la mesa (filtrar por RestaurantId)
             if (request.TableId.HasValue)
             {
-                var table = await _context.Tables.FindAsync(request.TableId.Value);
+                var table = await _context.Tables
+                    .FirstOrDefaultAsync(t => t.Id == request.TableId.Value && t.RestaurantId == restaurantId);
                 if (table != null)
                 {
                     table.Status = "OrderPlaced";
@@ -857,12 +861,15 @@ public class AdminOrdersController : ControllerBase
                 // Si el pedido está asociado a una mesa, verificar si hay otros pedidos activos
                 if (order.TableId.HasValue)
                 {
-                    var table = await _context.Tables.FindAsync(order.TableId.Value);
+                    var table = await _context.Tables
+                        .FirstOrDefaultAsync(t => t.Id == order.TableId.Value && t.RestaurantId == restaurantId);
                     if (table != null)
                     {
-                        // Verificar si hay otros pedidos activos en esta mesa
+                        // Verificar si hay otros pedidos activos en esta mesa (optimizado con AsNoTracking)
                         var hasOtherActiveOrders = await _context.Orders
-                            .AnyAsync(o => o.TableId == table.Id 
+                            .AsNoTracking()
+                            .AnyAsync(o => o.TableId == table.Id
+                                && o.RestaurantId == restaurantId 
                                 && o.Id != order.Id
                                 && !o.IsArchived 
                                 && o.Status != OrderConstants.STATUS_COMPLETED 
@@ -931,10 +938,12 @@ public class AdminOrdersController : ControllerBase
     {
         try
         {
-            var order = await _context.Orders.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var order = await _context.Orders
+                .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
             if (order == null)
             {
-                return NotFound(new { error = "Pedido no encontrado" });
+                return NotFound(new { error = "Pedido no encontrado o no pertenece a tu restaurante" });
             }
 
             if (string.IsNullOrWhiteSpace(request.PaymentMethod))
@@ -986,10 +995,12 @@ public class AdminOrdersController : ControllerBase
     [HttpPost("orders/{id}/archive")]
     public async Task<ActionResult> ArchiveOrder(int id)
     {
-        var order = await _context.Orders.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
         if (order == null)
         {
-            return NotFound(new { error = "Pedido no encontrado" });
+            return NotFound(new { error = "Pedido no encontrado o no pertenece a tu restaurante" });
         }
 
         order.IsArchived = true;
@@ -1007,10 +1018,12 @@ public class AdminOrdersController : ControllerBase
     [HttpPost("orders/{id}/restore")]
     public async Task<ActionResult> RestoreOrder(int id)
     {
-        var order = await _context.Orders.FindAsync(id);
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
         if (order == null)
         {
-            return NotFound(new { error = "Pedido no encontrado" });
+            return NotFound(new { error = "Pedido no encontrado o no pertenece a tu restaurante" });
         }
 
         order.IsArchived = false;
@@ -1030,10 +1043,12 @@ public class AdminOrdersController : ControllerBase
     {
         try
         {
-            var order = await _context.Orders.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var order = await _context.Orders
+                .FirstOrDefaultAsync(o => o.Id == id && o.RestaurantId == restaurantId);
             if (order == null)
             {
-                return NotFound(new { error = "Pedido no encontrado" });
+                return NotFound(new { error = "Pedido no encontrado o no pertenece a tu restaurante" });
             }
 
             if (string.IsNullOrWhiteSpace(order.TransferReceiptImage))

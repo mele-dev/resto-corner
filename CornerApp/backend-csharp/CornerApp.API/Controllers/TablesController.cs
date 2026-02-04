@@ -489,10 +489,12 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             table.Status = request.Status;
@@ -519,17 +521,21 @@ public class TablesController : ControllerBase
     {
         try
         {
-            // Verificar que ambas mesas existan
-            var sourceTable = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            // Verificar que ambas mesas existan y pertenezcan al mismo restaurante
+            var sourceTable = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
             if (sourceTable == null)
             {
-                return NotFound(new { error = "Mesa origen no encontrada" });
+                return NotFound(new { error = "Mesa origen no encontrada o no pertenece a tu restaurante" });
             }
 
-            var targetTable = await _context.Tables.FindAsync(targetTableId);
+            var targetTable = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == targetTableId && t.RestaurantId == restaurantId);
             if (targetTable == null)
             {
-                return NotFound(new { error = "Mesa destino no encontrada" });
+                return NotFound(new { error = "Mesa destino no encontrada o no pertenece a tu restaurante" });
             }
 
             // Verificar que la mesa destino esté disponible
@@ -538,9 +544,10 @@ public class TablesController : ControllerBase
                 return BadRequest(new { error = "La mesa destino debe estar disponible para transferir pedidos" });
             }
 
-            // Verificar que la mesa origen tenga pedidos activos
+            // Verificar que la mesa origen tenga pedidos activos (filtrar por RestaurantId)
             var activeOrders = await _context.Orders
                 .Where(o => o.TableId == id 
+                    && o.RestaurantId == restaurantId
                     && !o.IsArchived 
                     && o.Status != OrderConstants.STATUS_COMPLETED 
                     && o.Status != OrderConstants.STATUS_CANCELLED)
@@ -592,7 +599,7 @@ public class TablesController : ControllerBase
                 .Include(o => o.Items)
                 .Include(o => o.Table)
                 .Include(o => o.DeliveryPerson)
-                .Where(o => orderIds.Contains(o.Id))
+                .Where(o => orderIds.Contains(o.Id) && o.RestaurantId == restaurantId)
                 .ToListAsync();
 
             _logger.LogInformation("📤 Enviando notificaciones SignalR para {Count} pedidos transferidos", ordersWithDetails.Count);
@@ -640,19 +647,22 @@ public class TablesController : ControllerBase
     {
         try
         {
-            var table = await _context.Tables.FindAsync(id);
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurantId);
             if (table == null)
             {
-                return NotFound(new { error = "Mesa no encontrada" });
+                return NotFound(new { error = "Mesa no encontrada o no pertenece a tu restaurante" });
             }
 
             // Sincronizar estado primero para asegurar que esté actualizado
             await SyncTableStatusWithOrders(table);
             await _context.SaveChangesAsync();
 
-            // Verificar nuevamente si la mesa tiene pedidos activos después de sincronizar
+            // Verificar nuevamente si la mesa tiene pedidos activos después de sincronizar (filtrar por RestaurantId)
             var hasActiveOrders = await _context.Orders
                 .AnyAsync(o => o.TableId == id 
+                    && o.RestaurantId == restaurantId
                     && !o.IsArchived 
                     && o.Status != OrderConstants.STATUS_COMPLETED 
                     && o.Status != OrderConstants.STATUS_CANCELLED);
@@ -949,8 +959,10 @@ public class TablesController : ControllerBase
     {
         try
         {
-            // Verificar que la mesa existe y obtener su RestaurantId
-            var table = await _context.Tables.FindAsync(id);
+            // Verificar que la mesa existe (sin filtrar por RestaurantId ya que es endpoint público para mozos)
+            var table = await _context.Tables
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == id);
             if (table == null)
             {
                 return NotFound(new { error = "Mesa no encontrada" });
