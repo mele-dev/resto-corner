@@ -1158,13 +1158,18 @@ export default function TablesViewPage() {
     transactionDateTime?: string;
     response?: string;
   }> => {
+    // IMPORTANTE: Abrir modal de espera del POS ANTES de cualquier llamada
+    // Esto asegura que siempre se muestre el popup
+    // Usar setTimeout para asegurar que React renderice el cambio de estado
+    setIsPOSWaitingModalOpen(true);
+    setPosStatusMessage('Esperando respuesta del POS...');
+    setPosPollingAttempt(0);
+    
+    // Pequeño delay para asegurar que el modal se renderice antes de la llamada
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     try {
       console.log('🚀 [TablesView] Iniciando envío de transacción POS:', { amount });
-      
-      // Abrir modal de espera del POS
-      setIsPOSWaitingModalOpen(true);
-      setPosStatusMessage('Esperando respuesta del POS...');
-      setPosPollingAttempt(0);
       
       // Llamar al endpoint del backend que maneja la transacción POS
       const response = await api.sendPOSTransaction(amount);
@@ -1224,24 +1229,24 @@ export default function TablesViewPage() {
             // Obtener mensaje del código
             const codeMessage = getPOSCodeMessage(queryResponse.statusCode);
             const fullMessage = `${codeMessage} (Código: ${queryResponse.statusCode})`;
-            setPosStatusMessage(fullMessage);
             
-            // Manejar código 12 (tiempo excedido) - continuar polling 5 veces más
+            // IMPORTANTE: Manejar código 12 (tiempo excedido) ANTES de verificar isError
+            // El código 12 puede cambiar, así que continuamos consultando 5 veces más
             if (queryResponse.statusCode === 12) {
               code12Attempts++; // Incrementar contador de código 12
-              console.warn(`⚠️ [TablesView] Tiempo de transacción excedido (intento ${code12Attempts}/${maxCode12Attempts}), continuando polling...`);
-              setPosStatusMessage(`⚠️ ${fullMessage} - Continuando consulta (${code12Attempts}/${maxCode12Attempts})...`);
+              console.warn(`⚠️ [TablesView] Tiempo de transacción excedido (consulta ${code12Attempts}/${maxCode12Attempts}), continuando polling...`);
+              setPosStatusMessage(`⚠️ ${fullMessage} - Consultando nuevamente (${code12Attempts}/${maxCode12Attempts})...`);
              
-              // Si ya hicimos 5 intentos adicionales con código 12, mostrar error
+              // Si ya hicimos 5 consultas adicionales con código 12, mostrar error
               if (code12Attempts >= maxCode12Attempts) {
-                console.error('❌ [TablesView] Tiempo excedido después de 5 intentos adicionales con código 12');
+                console.error(`❌ [TablesView] Tiempo excedido después de ${maxCode12Attempts} consultas adicionales con código 12`);
                 clearInterval(pollInterval);
                 setIsPOSWaitingModalOpen(false);
-                showToast(`Tiempo de transacción excedido después de ${maxCode12Attempts} intentos. ${fullMessage}`, 'error');
+                showToast(`Tiempo de transacción excedido después de ${maxCode12Attempts} consultas. ${fullMessage}`, 'error');
                 reject(new Error(`Tiempo de transacción excedido: ${fullMessage}`));
                 return;
               }
-              // Continuar consultando (hacer 5 intentos más)
+              // Continuar consultando (hacer 5 consultas más antes de dar por perdida)
               return;
             } else {
               // Si recibimos un código diferente a 12, reiniciar el contador
@@ -1251,6 +1256,7 @@ export default function TablesViewPage() {
               }
             }
             
+            // Ahora verificar el estado de la transacción
             if (queryResponse.isCompleted) {
               console.log('✅ [TablesView] Transacción POS completada exitosamente');
               clearInterval(pollInterval);
@@ -1264,7 +1270,8 @@ export default function TablesViewPage() {
                 transactionDateTime: response.transactionDateTime,
                 response: response.response
               });
-            } else if (queryResponse.isError) {
+            } else if (queryResponse.isError && queryResponse.statusCode !== 12) {
+              // Solo tratar como error si NO es código 12 (ya lo manejamos arriba)
               console.error('❌ [TablesView] Transacción POS rechazada:', queryResponse.statusMessage);
               clearInterval(pollInterval);
               setIsPOSWaitingModalOpen(false);
@@ -2753,32 +2760,37 @@ export default function TablesViewPage() {
         )}
       </Modal>
 
-      {/* POS Waiting Modal */}
-      <Modal
-        isOpen={isPOSWaitingModalOpen}
-        onClose={() => {}} // No permitir cerrar manualmente mientras espera
-        title="Esperando respuesta del POS"
-        size="md"
-      >
-        <div className="space-y-4">
-          <div className="flex flex-col items-center justify-center py-6">
-            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-lg font-semibold text-gray-700 mb-2">
-              {posStatusMessage}
-            </p>
-            {posPollingAttempt > 0 && (
-              <p className="text-sm text-gray-500">
-                Intento {posPollingAttempt} de consulta...
-              </p>
-            )}
-          </div>
-          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <p className="text-sm text-blue-800">
-              Por favor, espere mientras se procesa la transacción en el terminal POS.
-            </p>
+      {/* POS Waiting Modal - z-index alto para estar por encima de otros modales */}
+      {isPOSWaitingModalOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 animate-fade-in" />
+          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden animate-scale-in">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Esperando respuesta del POS</h2>
+            </div>
+            <div className="px-6 py-4">
+              <div className="space-y-4">
+                <div className="flex flex-col items-center justify-center py-6">
+                  <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                  <p className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    {posStatusMessage}
+                  </p>
+                  {posPollingAttempt > 0 && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Intento {posPollingAttempt} de consulta...
+                    </p>
+                  )}
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    Por favor, espere mientras se procesa la transacción en el terminal POS.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </Modal>
+      )}
     </div>
   );
 }

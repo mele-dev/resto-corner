@@ -61,12 +61,12 @@ export default function Logo({ className = '', showText = true, height = 50, var
           <g transform="translate(60, 39)">
             {/* Fork (left side) */}
             <line x1="-6" y1="-2" x2="-6" y2="2" stroke="black" strokeWidth="2" strokeLinecap="round" />
-            <line x1="-8" y1="-1" x2="-4" y1="-1" stroke="black" strokeWidth="2" strokeLinecap="round" />
-            <line x1="-7" y1="-3" x2="-5" y1="-3" stroke="black" strokeWidth="1.5" />
+            <line x1="-8" y1="-1" x2="-4" y2="-1" stroke="black" strokeWidth="2" strokeLinecap="round" />
+            <line x1="-7" y1="-3" x2="-5" y2="-3" stroke="black" strokeWidth="1.5" />
             {/* Knife (right side) */}
             <line x1="6" y1="-2" x2="6" y2="2" stroke="black" strokeWidth="2" strokeLinecap="round" />
-            <line x1="4" y1="-2" x2="8" y1="2" stroke="black" strokeWidth="1.5" />
-            <line x1="4" y1="2" x2="8" y1="-2" stroke="black" strokeWidth="1.5" />
+            <line x1="4" y1="-2" x2="8" y2="2" stroke="black" strokeWidth="1.5" />
+            <line x1="4" y1="2" x2="8" y2="-2" stroke="black" strokeWidth="1.5" />
           </g>
         </g>
 

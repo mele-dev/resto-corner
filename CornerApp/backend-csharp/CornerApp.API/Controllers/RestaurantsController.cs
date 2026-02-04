@@ -307,6 +307,100 @@ public class RestaurantsController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene la configuración POS del restaurante actual
+    /// </summary>
+    [HttpGet("current/pos-config")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> GetCurrentRestaurantPOSConfig()
+    {
+        try
+        {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var restaurant = await _context.Restaurants
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == restaurantId);
+
+            if (restaurant == null)
+            {
+                return NotFound(new { error = "Restaurante no encontrado" });
+            }
+
+            return Ok(new
+            {
+                systemId = restaurant.SystemId ?? string.Empty,
+                posId = restaurant.PosId ?? string.Empty,
+                branch = restaurant.Branch ?? string.Empty,
+                clientAppId = restaurant.ClientAppId ?? string.Empty
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener configuración POS del restaurante");
+            return StatusCode(500, new { error = "Error al obtener la configuración POS" });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza la configuración POS del restaurante actual
+    /// </summary>
+    [HttpPut("current/pos-config")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult> UpdateCurrentRestaurantPOSConfig([FromBody] UpdatePOSConfigRequest request)
+    {
+        try
+        {
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            var restaurant = await _context.Restaurants
+                .FirstOrDefaultAsync(r => r.Id == restaurantId);
+
+            if (restaurant == null)
+            {
+                return NotFound(new { error = "Restaurante no encontrado" });
+            }
+
+            // Actualizar campos si se proporcionan
+            if (request.SystemId != null)
+            {
+                restaurant.SystemId = request.SystemId.Trim();
+            }
+
+            if (request.PosId != null)
+            {
+                restaurant.PosId = request.PosId.Trim();
+            }
+
+            if (request.Branch != null)
+            {
+                restaurant.Branch = request.Branch.Trim();
+            }
+
+            if (request.ClientAppId != null)
+            {
+                restaurant.ClientAppId = request.ClientAppId.Trim();
+            }
+
+            restaurant.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Configuración POS actualizada para restaurante {RestaurantId}", restaurantId);
+
+            return Ok(new
+            {
+                message = "Configuración POS actualizada exitosamente",
+                systemId = restaurant.SystemId,
+                posId = restaurant.PosId,
+                branch = restaurant.Branch,
+                clientAppId = restaurant.ClientAppId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al actualizar configuración POS del restaurante");
+            return StatusCode(500, new { error = "Error al actualizar la configuración POS" });
+        }
+    }
+
+    /// <summary>
     /// Limpia datos antiguos sin RestaurantId (solo SuperAdmin)
     /// Este endpoint elimina categorías y productos que no tienen RestaurantId asignado
     /// </summary>
@@ -366,4 +460,13 @@ public class RestaurantsController : ControllerBase
             return StatusCode(500, new { error = "Error al limpiar datos huérfanos", details = ex.Message });
         }
     }
+}
+
+// DTOs
+public class UpdatePOSConfigRequest
+{
+    public string? SystemId { get; set; }
+    public string? PosId { get; set; }
+    public string? Branch { get; set; }
+    public string? ClientAppId { get; set; }
 }

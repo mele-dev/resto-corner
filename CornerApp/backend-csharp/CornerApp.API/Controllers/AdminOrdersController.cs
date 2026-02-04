@@ -39,12 +39,16 @@ public class AdminOrdersController : ControllerBase
     private const int MAX_PAGE_SIZE = 100;
     private const int DEFAULT_PAGE_SIZE = 20;
     
-    // Constantes para POS
-    private const string POS_ID = "22224628";
-    private const string SYSTEM_ID = "cb67e3e5-3ab9-3a6b-960b-2b874b68ab3c";
+    // URLs del POS (constantes)
     private const string POS_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchase";
     private const string POS_VOID_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseRefund";
     private const string POS_QUERY_API_URL = "https://poslink.hm.opos.com.uy/itdServer/processFinancialPurchaseQuery";
+    
+    // Valores por defecto para POS (si el restaurante no tiene configuración)
+    private const string DEFAULT_POS_ID = "22224628";
+    private const string DEFAULT_SYSTEM_ID = "cb67e3e5-3ab9-3a6b-960b-2b874b68ab3c";
+    private const string DEFAULT_BRANCH = "1";
+    private const string DEFAULT_CLIENT_APP_ID = "1";
 
     public AdminOrdersController(
         ApplicationDbContext context,
@@ -1144,6 +1148,24 @@ public class AdminOrdersController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene la configuración POS del restaurante actual
+    /// </summary>
+    private async Task<(string PosId, string SystemId, string Branch, string ClientAppId)> GetPOSConfigAsync()
+    {
+        var restaurantId = RestaurantHelper.GetRestaurantId(User);
+        var restaurant = await _context.Restaurants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == restaurantId);
+        
+        return (
+            PosId: restaurant?.PosId ?? DEFAULT_POS_ID,
+            SystemId: restaurant?.SystemId ?? DEFAULT_SYSTEM_ID,
+            Branch: restaurant?.Branch ?? DEFAULT_BRANCH,
+            ClientAppId: restaurant?.ClientAppId ?? DEFAULT_CLIENT_APP_ID
+        );
+    }
+
+    /// <summary>
     /// Envía una transacción al POS externo
     /// </summary>
     [HttpPost("pos/transaction")]
@@ -1156,6 +1178,9 @@ public class AdminOrdersController : ControllerBase
                 return BadRequest(new { error = "El monto debe ser mayor a 0" });
             }
 
+            // Obtener configuración POS del restaurante
+            var posConfig = await GetPOSConfigAsync();
+
             // Formatear fecha como yyyyMMddHHmmssSSS
             var now = DateTime.UtcNow;
             var transactionDateTime = now.ToString("yyyyMMddHHmmssfff");
@@ -1166,10 +1191,10 @@ public class AdminOrdersController : ControllerBase
             // Crear el JSON exactamente como lo hace el código Java
             // Construir el JSON manualmente para mantener los nombres exactos
             var jsonContent = $@"{{
-  ""PosID"": ""{POS_ID}"",
-  ""SystemId"": ""{SYSTEM_ID}"",
-  ""Branch"": ""1"",
-  ""ClientAppId"": ""1"",
+  ""PosID"": ""{posConfig.PosId}"",
+  ""SystemId"": ""{posConfig.SystemId}"",
+  ""Branch"": ""{posConfig.Branch}"",
+  ""ClientAppId"": ""{posConfig.ClientAppId}"",
   ""UserId"": ""1"",
   ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{transactionDateTime}"",
   ""Amount"": ""{amountFormatted}"",
@@ -1423,13 +1448,16 @@ public class AdminOrdersController : ControllerBase
                 ? ((long)Math.Round(request.InvoiceAmount.Value * 100)).ToString()
                 : amountFormatted; // Por defecto usar el mismo monto
 
+            // Obtener configuración POS del restaurante
+            var posConfig = await GetPOSConfigAsync();
+
             // Crear el JSON con todos los campos requeridos según la documentación
             // Formato consistente con el ejemplo Java que funciona
             var jsonContent = $@"{{
-  ""PosID"": ""{POS_ID}"",
-  ""SystemId"": ""{SYSTEM_ID}"",
-  ""Branch"": ""1"",
-  ""ClientAppId"": ""1"",
+  ""PosID"": ""{posConfig.PosId}"",
+  ""SystemId"": ""{posConfig.SystemId}"",
+  ""Branch"": ""{posConfig.Branch}"",
+  ""ClientAppId"": ""{posConfig.ClientAppId}"",
   ""UserId"": ""1"",
   ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{refundTransactionDateTime}"",
   ""OriginalTransactionDateyyMMdd"": ""{originalTransactionDate}"",
@@ -1623,12 +1651,15 @@ public class AdminOrdersController : ControllerBase
                 return BadRequest(new { error = "TransactionId inválido" });
             }
 
+            // Obtener configuración POS del restaurante
+            var posConfig = await GetPOSConfigAsync();
+
             // Crear el JSON para consultar el estado
             var jsonContent = $@"{{
-  ""PosID"": ""{POS_ID}"",
-  ""SystemId"": ""{SYSTEM_ID}"",
-  ""Branch"": ""1"",
-  ""ClientAppId"": ""1"",
+  ""PosID"": ""{posConfig.PosId}"",
+  ""SystemId"": ""{posConfig.SystemId}"",
+  ""Branch"": ""{posConfig.Branch}"",
+  ""ClientAppId"": ""{posConfig.ClientAppId}"",
   ""UserId"": ""1"",
   ""TransactionDateTimeyyyyMMddHHmmssSSS"": ""{request.TransactionDateTime}"",
   ""TransactionId"": {transactionId},

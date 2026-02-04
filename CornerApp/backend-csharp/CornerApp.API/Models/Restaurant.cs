@@ -16,6 +16,12 @@ public class Restaurant
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     
+    // Configuración POS
+    public string? SystemId { get; set; }
+    public string? PosId { get; set; }
+    public string? Branch { get; set; }
+    public string? ClientAppId { get; set; }
+    
     // Relaciones
     public List<Admin> Admins { get; set; } = new();
     public List<Order> Orders { get; set; } = new();

@@ -5,16 +5,85 @@ import {
   Info,
   ArrowLeft,
   Moon,
-  Sun
+  Sun,
+  CreditCard,
+  Save
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Globe } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useToast } from '../../components/Toast/ToastContext';
 
 export default function SettingsInfoPage() {
   const { theme, toggleTheme } = useTheme();
   const { language, changeLanguage, t } = useLanguage();
+  const { showToast } = useToast();
+  
+  const [posConfig, setPosConfig] = useState({
+    systemId: '',
+    posId: '',
+    branch: '',
+    clientAppId: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadPOSConfig();
+  }, []);
+
+  const loadPOSConfig = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/restaurants/current/pos-config', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPosConfig({
+          systemId: data.systemId || '',
+          posId: data.posId || '',
+          branch: data.branch || '',
+          clientAppId: data.clientAppId || ''
+        });
+      }
+    } catch (error) {
+      console.error('Error al cargar configuración POS:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSavePOSConfig = async () => {
+    try {
+      setSaving(true);
+      const response = await fetch('/api/restaurants/current/pos-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
+        },
+        body: JSON.stringify(posConfig)
+      });
+
+      if (response.ok) {
+        showToast('Configuración POS guardada exitosamente', 'success');
+      } else {
+        const error = await response.json();
+        showToast(error.error || 'Error al guardar la configuración POS', 'error');
+      }
+    } catch (error) {
+      console.error('Error al guardar configuración POS:', error);
+      showToast('Error al guardar la configuración POS', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -180,6 +249,91 @@ export default function SettingsInfoPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* POS Configuration */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 md:col-span-2">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-indigo-100 dark:bg-indigo-900 rounded-lg">
+              <CreditCard size={24} className="text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Configuración POS</h2>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Configura los parámetros de conexión con el sistema POS. Estos valores se utilizarán en todas las transacciones.
+          </p>
+          
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+              <p className="mt-2 text-gray-500 dark:text-gray-400">Cargando configuración...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  System ID
+                </label>
+                <input
+                  type="text"
+                  value={posConfig.systemId}
+                  onChange={(e) => setPosConfig({ ...posConfig, systemId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="Ej: cb67e3e5-3ab9-3a6b-960b-2b874b68ab3c"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  POS ID
+                </label>
+                <input
+                  type="text"
+                  value={posConfig.posId}
+                  onChange={(e) => setPosConfig({ ...posConfig, posId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="Ej: 22224628"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Branch
+                </label>
+                <input
+                  type="text"
+                  value={posConfig.branch}
+                  onChange={(e) => setPosConfig({ ...posConfig, branch: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="Ej: 1"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Client App ID
+                </label>
+                <input
+                  type="text"
+                  value={posConfig.clientAppId}
+                  onChange={(e) => setPosConfig({ ...posConfig, clientAppId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="Ej: 1"
+                />
+              </div>
+            </div>
+          )}
+          
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={handleSavePOSConfig}
+              disabled={saving || loading}
+              className="flex items-center gap-2 px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Save size={18} />
+              <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
+            </button>
           </div>
         </div>
       </div>

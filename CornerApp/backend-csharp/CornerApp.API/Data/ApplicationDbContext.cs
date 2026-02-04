@@ -45,6 +45,10 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Phone).HasMaxLength(50);
             entity.Property(e => e.Email).HasMaxLength(200);
             entity.Property(e => e.IsActive).HasDefaultValue(true);
+            entity.Property(e => e.SystemId).HasMaxLength(100);
+            entity.Property(e => e.PosId).HasMaxLength(100);
+            entity.Property(e => e.Branch).HasMaxLength(50);
+            entity.Property(e => e.ClientAppId).HasMaxLength(50);
             
             // Índices
             entity.HasIndex(e => e.Name);
