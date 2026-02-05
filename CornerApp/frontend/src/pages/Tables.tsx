@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart, CreditCard, DollarSign, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart, CreditCard, DollarSign } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
 import OpenCashRegisterModal from '../components/Modal/OpenCashRegisterModal';
 import CloseCashRegisterModal from '../components/Modal/CloseCashRegisterModal';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { Table, CreateTableRequest, UpdateTableRequest, TableStatus, Space, CreateSpaceRequest, Product, PaymentMethod, Order, Category, SubProduct, CashRegisterStatus } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
@@ -856,7 +857,7 @@ export default function TablesPage() {
       if (selectedPaymentMethod.toLowerCase() === 'pos') {
         try {
           // El toast y modal se manejan dentro de enviarTransaccionPOS
-          const posResult = await enviarTransaccionPOS(totalAmount);
+          await enviarTransaccionPOS(totalAmount);
           // El toast ya se muestra dentro de enviarTransaccionPOS
         } catch (error: any) {
           // El modal y toast ya se manejan dentro de enviarTransaccionPOS
@@ -911,6 +912,99 @@ export default function TablesPage() {
           <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
             <TableIcon className="text-primary-500" size={32} />
             Gestión de Mesas
+            <HelpIcon
+              title="Manual de Gestión de Mesas"
+              content={
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-lg mb-2">📋 Gestión de Mesas</h3>
+                    <p className="mb-2">En esta sección puedes administrar las mesas de tu restaurante, crear pedidos y procesar pagos.</p>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold mb-2">🏗️ Espacios y Mesas</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Crear Espacio:</strong> Los espacios son áreas del restaurante (ej: "Salón Principal", "Terraza"). Crea espacios para organizar mejor tus mesas.</li>
+                      <li><strong>Crear Mesa:</strong> Agrega mesas asignándolas a un espacio. Define número, capacidad, ubicación y estado inicial.</li>
+                      <li><strong>Mover Mesas:</strong> Activa el "Modo Mover" para arrastrar y reposicionar mesas en el plano del salón.</li>
+                      <li><strong>Editar/Eliminar:</strong> Puedes editar o eliminar mesas desde el menú de acciones de cada mesa.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">📊 Estados de Mesa</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Disponible:</strong> Mesa libre y lista para recibir clientes.</li>
+                      <li><strong>Ocupada:</strong> Mesa con clientes sentados.</li>
+                      <li><strong>Reservada:</strong> Mesa reservada para un cliente.</li>
+                      <li><strong>Limpieza:</strong> Mesa siendo limpiada después de uso.</li>
+                      <li><strong>Pedido Realizado:</strong> Mesa con pedido confirmado pero aún no pagado.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">🛒 Crear Pedido desde Mesa</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-sm">
+                      <li><strong>Abrir Caja:</strong> Primero debes abrir la caja del restaurante (botón en la esquina superior derecha).</li>
+                      <li>Haz clic en una mesa disponible u ocupada.</li>
+                      <li>Selecciona "Crear Pedido" desde el menú de la mesa.</li>
+                      <li>Elige productos de las categorías disponibles.</li>
+                      <li>Agrega subproductos si el producto los tiene (ej: tamaño, extras).</li>
+                      <li>Confirma el pedido. La mesa cambiará a estado "Pedido Realizado".</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">💳 Procesar Pago</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-sm">
+                      <li>Haz clic en una mesa con pedido realizado.</li>
+                      <li>Selecciona "Procesar Pago".</li>
+                      <li>Elige el método de pago:
+                        <ul className="list-disc list-inside ml-4 mt-1">
+                          <li><strong>Efectivo:</strong> Pago inmediato en efectivo.</li>
+                          <li><strong>Tarjeta:</strong> Pago con tarjeta de débito/crédito.</li>
+                          <li><strong>POS:</strong> Pago con terminal POS. El sistema esperará la confirmación del POS automáticamente.</li>
+                        </ul>
+                      </li>
+                      <li>Confirma el pago. La mesa volverá a estado "Disponible".</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">👁️ Vista de Plano vs Lista</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Vista Plano:</strong> Visualiza las mesas en un plano del salón. Ideal para ver la distribución física.</li>
+                      <li><strong>Vista Lista:</strong> Lista todas las mesas con sus detalles. Útil para búsquedas rápidas.</li>
+                      <li>Puedes cambiar entre vistas con los botones en la parte superior.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">🔍 Filtros y Búsqueda</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Filtrar por Estado:</strong> Muestra solo mesas con un estado específico.</li>
+                      <li><strong>Filtrar por Espacio:</strong> Muestra solo mesas de un espacio determinado.</li>
+                      <li><strong>Buscar:</strong> Busca mesas por número o ubicación.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">💰 Caja del Restaurante</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Abrir Caja:</strong> Debes abrir la caja antes de crear pedidos o procesar pagos.</li>
+                      <li><strong>Cerrar Caja:</strong> Al finalizar el día, cierra la caja. El sistema mostrará un resumen de movimientos.</li>
+                      <li>El estado de la caja se muestra en la esquina superior derecha.</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-blue-50 p-3 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>💡 Tip:</strong> Cuando uses POS, espera a que aparezca el mensaje de confirmación. El sistema consulta automáticamente el estado de la transacción.
+                    </p>
+                  </div>
+                </div>
+              }
+            />
           </h1>
           <p className="text-gray-600 mt-1">Administra las mesas del restaurante</p>
         </div>

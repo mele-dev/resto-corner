@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
 import Pagination from '../components/Pagination/Pagination';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { Category, CreateCategoryRequest } from '../types';
 
 const iconOptions = ['📦', '🍕', '🍔', '🌭', '🍟', '🥤', '🍺', '🍷', '🍰', '🍦', '🥗', '🥪', '🌮', '🍣', '🍝', '☕'];
@@ -138,7 +139,67 @@ export default function CategoriesPage() {
       <div className="bg-white rounded-xl shadow-md p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-800">📁 Gestión de Categorías</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-gray-800">📁 Gestión de Categorías</h1>
+              <HelpIcon
+                title="Manual de Categorías"
+                content={
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg mb-2">📁 Gestión de Categorías</h3>
+                      <p className="mb-2">Las categorías te permiten organizar tus productos en grupos (ej: "Bebidas", "Postres", "Platos Principales").</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-semibold mb-2">➕ Crear Categoría</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-sm">
+                        <li>Haz clic en el botón "Nueva Categoría".</li>
+                        <li>Completa los campos:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li><strong>Nombre:</strong> Nombre de la categoría (ej: "Bebidas", "Postres").</li>
+                            <li><strong>Descripción:</strong> Descripción opcional de la categoría.</li>
+                            <li><strong>Icono:</strong> Selecciona un emoji que represente la categoría.</li>
+                            <li><strong>Orden de Visualización:</strong> Número que determina el orden en el menú (menor = primero).</li>
+                            <li><strong>Activa:</strong> Marca si la categoría está activa y visible.</li>
+                          </ul>
+                        </li>
+                        <li>Guarda la categoría.</li>
+                      </ol>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">✏️ Editar Categoría</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de editar (lápiz) junto a la categoría.</li>
+                        <li>Modifica los campos que necesites.</li>
+                        <li>Guarda los cambios.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🗑️ Eliminar Categoría</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de eliminar (papelera) junto a la categoría.</li>
+                        <li>Confirma la eliminación.</li>
+                        <li><strong>Nota:</strong> No podrás eliminar categorías que tengan productos asociados.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">📊 Orden de Visualización</h4>
+                      <p className="text-sm mb-2">El campo "Orden" determina en qué orden aparecen las categorías en el menú. Las categorías con menor número aparecen primero.</p>
+                      <p className="text-sm"><strong>Ejemplo:</strong> Si "Bebidas" tiene orden 1 y "Postres" tiene orden 2, "Bebidas" aparecerá antes que "Postres".</p>
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>💡 Tip:</strong> Organiza tus categorías de manera lógica. Las categorías bien organizadas facilitan que los clientes encuentren los productos y que los empleados los gestionen.
+                      </p>
+                    </div>
+                  </div>
+                }
+              />
+            </div>
             <p className="text-sm text-gray-500">{categories.length} categorías registradas</p>
           </div>
           <button

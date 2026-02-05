@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { DeliveryPerson, Product, PaymentMethod, Order, Category, SubProduct, CreateOrderRequest, Customer } from '../types';
 
 export default function DeliveryPersonsManagementPage() {
@@ -430,6 +431,65 @@ export default function DeliveryPersonsManagementPage() {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Truck size={28} className="text-primary-500" />
             Repartidores
+            <HelpIcon
+              title="Manual de Repartidores"
+              content={
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-lg mb-2">📋 Gestión de Repartidores</h3>
+                    <p className="mb-2">En esta sección puedes gestionar los repartidores de tu restaurante y crear pedidos de delivery.</p>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold mb-2">✅ Repartidores Activos</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Abrir Caja:</strong> Antes de crear pedidos, debes abrir la caja del repartidor. Ingresa el monto inicial en efectivo que llevará de cambio.</li>
+                      <li><strong>Ver Detalles:</strong> Haz clic en el botón "Ver Detalles" para ver los pedidos del repartidor y su estado de caja.</li>
+                      <li><strong>Crear Pedido:</strong> Una vez abierta la caja, puedes crear pedidos de delivery para ese repartidor.</li>
+                      <li><strong>Cerrar Caja:</strong> Al finalizar el turno, cierra la caja. El sistema mostrará un resumen de movimientos.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">🛒 Crear Pedido de Delivery</h4>
+                    <ol className="list-decimal list-inside space-y-1 text-sm">
+                      <li>Abre la caja del repartidor (si no está abierta).</li>
+                      <li>Haz clic en "Crear Pedido" junto al repartidor.</li>
+                      <li>Busca o ingresa los datos del cliente (nombre, teléfono, dirección).</li>
+                      <li>Selecciona productos de las categorías disponibles.</li>
+                      <li>Agrega subproductos si el producto los tiene (ej: tamaño, extras).</li>
+                      <li>Selecciona el método de pago (efectivo, tarjeta, POS).</li>
+                      <li>Agrega comentarios si es necesario.</li>
+                      <li>Confirma el pedido.</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">💰 Gestión de Caja</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li><strong>Estado de Caja:</strong> Verás si la caja está abierta o cerrada con un indicador visual.</li>
+                      <li><strong>Movimientos:</strong> Desde "Ver Detalles" puedes ver todos los movimientos de la caja (apertura, pedidos, cierre).</li>
+                      <li><strong>Cerrar Caja:</strong> Al cerrar, puedes agregar notas sobre el cierre (opcional).</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">📊 Pedidos del Repartidor</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>Puedes filtrar pedidos por estado: Todos, Preparando, En Camino, Completados, Cancelados.</li>
+                      <li>Puedes cancelar pedidos que estén en estado "Preparando".</li>
+                      <li>Cada pedido muestra el cliente, productos, total y método de pago.</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-blue-50 p-3 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>💡 Tip:</strong> Siempre abre la caja antes de crear pedidos. El sistema requiere que la caja esté abierta para registrar las transacciones correctamente.
+                    </p>
+                  </div>
+                </div>
+              }
+            />
           </h1>
           <p className="text-gray-600 mt-1">Gestiona repartidores y crea pedidos de delivery</p>
         </div>

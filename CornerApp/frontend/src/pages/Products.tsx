@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
 import Pagination from '../components/Pagination/Pagination';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { Product, Category, CreateProductRequest, SubProduct, CreateSubProductRequest } from '../types';
 
 export default function ProductsPage() {
@@ -305,7 +306,92 @@ export default function ProductsPage() {
       <div className="bg-white rounded-xl shadow-md p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-800">🛒 Gestión de Productos</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-gray-800">🛒 Gestión de Productos</h1>
+              <HelpIcon
+                title="Manual de Productos"
+                content={
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg mb-2">📦 Gestión de Productos</h3>
+                      <p className="mb-2">En esta sección puedes crear, editar y gestionar los productos de tu menú.</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-semibold mb-2">➕ Crear Producto</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-sm">
+                        <li>Haz clic en el botón "Nuevo Producto".</li>
+                        <li>Completa los campos:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li><strong>Nombre:</strong> Nombre del producto (ej: "Hamburguesa Clásica").</li>
+                            <li><strong>Descripción:</strong> Descripción detallada del producto (opcional).</li>
+                            <li><strong>Precio:</strong> Precio base del producto.</li>
+                            <li><strong>Categoría:</strong> Selecciona la categoría a la que pertenece.</li>
+                            <li><strong>Imagen:</strong> URL de la imagen del producto (opcional).</li>
+                            <li><strong>Orden de Visualización:</strong> Número que determina el orden en el menú (menor = primero).</li>
+                            <li><strong>Disponible:</strong> Marca si el producto está disponible para la venta.</li>
+                          </ul>
+                        </li>
+                        <li>Guarda el producto.</li>
+                      </ol>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">✏️ Editar Producto</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de editar (lápiz) junto al producto.</li>
+                        <li>Modifica los campos que necesites.</li>
+                        <li>Guarda los cambios.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🗑️ Eliminar Producto</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de eliminar (papelera) junto al producto.</li>
+                        <li>Confirma la eliminación.</li>
+                        <li><strong>Nota:</strong> No podrás eliminar productos que tengan pedidos asociados.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🍽️ Subproductos (Guarniciones)</h4>
+                      <p className="text-sm mb-2">Los subproductos son opciones adicionales para un producto (ej: tamaños, extras, guarniciones).</p>
+                      <ol className="list-decimal list-inside space-y-1 text-sm">
+                        <li>Haz clic en el botón "Guarniciones" junto al producto.</li>
+                        <li>En el modal, haz clic en "Nueva Guarnición".</li>
+                        <li>Completa:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li><strong>Nombre:</strong> Nombre del subproducto (ej: "Papas Fritas", "Bebida Grande").</li>
+                            <li><strong>Precio:</strong> Precio adicional del subproducto (puede ser 0).</li>
+                            <li><strong>Descripción:</strong> Descripción opcional.</li>
+                            <li><strong>Orden:</strong> Orden de visualización.</li>
+                            <li><strong>Disponible:</strong> Si está disponible o no.</li>
+                          </ul>
+                        </li>
+                        <li>Guarda el subproducto.</li>
+                      </ol>
+                      <p className="text-sm mt-2"><strong>Ejemplo:</strong> Para una hamburguesa, puedes crear subproductos como "Papas Fritas", "Aros de Cebolla", "Bebida Grande", etc.</p>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🔍 Buscar y Filtrar</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>Buscar:</strong> Usa el campo de búsqueda para encontrar productos por nombre.</li>
+                        <li><strong>Filtrar por Categoría:</strong> Selecciona una categoría para ver solo productos de esa categoría.</li>
+                        <li><strong>Paginación:</strong> Si tienes muchos productos, usa los controles de paginación para navegar.</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>💡 Tip:</strong> Organiza tus productos por categorías para facilitar la búsqueda. Los subproductos permiten ofrecer opciones personalizables sin crear múltiples productos.
+                      </p>
+                    </div>
+                  </div>
+                }
+              />
+            </div>
             <p className="text-sm text-gray-500">{products.length} productos registrados</p>
           </div>
           <button

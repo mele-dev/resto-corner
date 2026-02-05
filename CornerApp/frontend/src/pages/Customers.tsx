@@ -16,6 +16,7 @@ import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
 import Pagination from '../components/Pagination/Pagination';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { Customer, CreateCustomerRequest } from '../types';
 
 export default function CustomersPage() {
@@ -184,7 +185,70 @@ export default function CustomersPage() {
               <ArrowLeft size={20} className="text-gray-500" />
             </Link>
             <div>
-              <h1 className="text-xl font-bold text-gray-800">👥 Registro de Clientes</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-gray-800">👥 Registro de Clientes</h1>
+                <HelpIcon
+                  title="Manual de Clientes"
+                  content={
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">👥 Gestión de Clientes</h3>
+                        <p className="mb-2">En esta sección puedes consultar y gestionar los clientes registrados en tu restaurante.</p>
+                      </div>
+                      
+                      <div>
+                        <h4 className="font-semibold mb-2">🔍 Buscar Clientes</h4>
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          <li>Usa el campo de búsqueda para encontrar clientes por nombre, teléfono, email, dirección o número de documento.</li>
+                          <li>Presiona Enter o haz clic en el botón de búsqueda para filtrar.</li>
+                        </ul>
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold mb-2">👁️ Ver Detalles</h4>
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          <li>Haz clic en el ícono de "Ver" (ojo) junto a un cliente para ver su información completa.</li>
+                          <li>Verás: datos personales, dirección, puntos acumulados, historial de pedidos, etc.</li>
+                        </ul>
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold mb-2">➕ Crear Cliente</h4>
+                        <ol className="list-decimal list-inside space-y-1 text-sm">
+                          <li>Haz clic en "Nuevo Cliente".</li>
+                          <li>Completa los campos:
+                            <ul className="list-disc list-inside ml-4 mt-1">
+                              <li><strong>Nombre:</strong> Nombre completo del cliente.</li>
+                              <li><strong>Teléfono:</strong> Número de teléfono (requerido).</li>
+                              <li><strong>Email:</strong> Correo electrónico (opcional).</li>
+                              <li><strong>Dirección:</strong> Dirección predeterminada para delivery (opcional).</li>
+                              <li><strong>Tipo de Documento:</strong> DNI, Pasaporte, etc. (opcional).</li>
+                              <li><strong>Número de Documento:</strong> Número del documento (opcional).</li>
+                            </ul>
+                          </li>
+                          <li>Guarda el cliente.</li>
+                        </ol>
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold mb-2">📊 Estadísticas</h4>
+                        <p className="text-sm mb-2">En la parte superior verás tarjetas con estadísticas:</p>
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          <li><strong>Total Clientes:</strong> Cantidad total de clientes registrados.</li>
+                          <li><strong>Con Pedidos:</strong> Clientes que han realizado al menos un pedido.</li>
+                          <li><strong>Puntos Totales:</strong> Suma de todos los puntos acumulados por los clientes.</li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                          <strong>💡 Tip:</strong> Los clientes se crean automáticamente cuando realizan un pedido, pero puedes crearlos manualmente aquí para tener su información lista.
+                        </p>
+                      </div>
+                    </div>
+                  }
+                />
+              </div>
               <p className="text-sm text-gray-500">Consulta y gestiona los clientes registrados</p>
             </div>
           </div>

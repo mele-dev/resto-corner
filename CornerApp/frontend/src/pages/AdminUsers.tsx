@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
+import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { AdminUser, CreateAdminUserRequest, UpdateAdminUserRequest } from '../types';
 
 export default function AdminUsersPage() {
@@ -218,10 +219,86 @@ export default function AdminUsersPage() {
       <div className="bg-white rounded-xl shadow-md p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-              <Shield size={24} className="text-primary-500" />
-              Gestión de Usuarios
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <Shield size={24} className="text-primary-500" />
+                Gestión de Usuarios
+              </h1>
+              <HelpIcon
+                title="Manual de Usuarios"
+                content={
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg mb-2">👤 Gestión de Usuarios</h3>
+                      <p className="mb-2">En esta sección puedes crear y gestionar los usuarios del sistema (administradores y empleados).</p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="font-semibold mb-2">➕ Crear Usuario</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-sm">
+                        <li>Haz clic en "Nuevo Usuario".</li>
+                        <li>Completa los campos:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li><strong>Nombre de Usuario:</strong> Nombre único para iniciar sesión (requerido).</li>
+                            <li><strong>Email:</strong> Correo electrónico del usuario (requerido).</li>
+                            <li><strong>Contraseña:</strong> Contraseña segura (requerida).</li>
+                            <li><strong>Nombre:</strong> Nombre completo del usuario (requerido).</li>
+                            <li><strong>Rol:</strong> Selecciona el tipo de usuario:
+                              <ul className="list-disc list-inside ml-4 mt-1">
+                                <li><strong>Administrador:</strong> Acceso completo al sistema. Puede crear usuarios, abrir/cerrar caja y gestionar todo.</li>
+                                <li><strong>Empleado:</strong> Acceso limitado. Puede gestionar pedidos, mesas y productos, pero no puede crear usuarios ni gestionar caja.</li>
+                              </ul>
+                            </li>
+                          </ul>
+                        </li>
+                        <li>Guarda el usuario.</li>
+                      </ol>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">✏️ Editar Usuario</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de editar (lápiz) junto al usuario.</li>
+                        <li>Modifica los campos que necesites.</li>
+                        <li><strong>Nota:</strong> Si dejas la contraseña vacía, no se cambiará. Solo completa el campo si quieres cambiar la contraseña.</li>
+                        <li>Guarda los cambios.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🗑️ Eliminar Usuario</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Haz clic en el ícono de eliminar (papelera) junto al usuario.</li>
+                        <li>Confirma la eliminación.</li>
+                        <li><strong>Nota:</strong> No puedes eliminar tu propio usuario.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🔍 Buscar Usuarios</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Usa el campo de búsqueda para encontrar usuarios por nombre, nombre de usuario o email.</li>
+                        <li>La búsqueda se realiza automáticamente mientras escribes.</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold mb-2">🔐 Roles y Permisos</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>Administrador:</strong> Acceso completo. Puede gestionar usuarios, caja, configuraciones y todo el sistema.</li>
+                        <li><strong>Empleado:</strong> Acceso limitado. Puede gestionar pedidos, mesas, productos y categorías, pero no puede crear usuarios ni gestionar caja.</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>💡 Tip:</strong> Crea usuarios con el rol "Empleado" para mozos y personal que no necesita acceso completo. Los administradores deben ser solo personal de confianza.
+                      </p>
+                    </div>
+                  </div>
+                }
+              />
+            </div>
             <p className="text-sm text-gray-500">{users.length} usuarios registrados</p>
           </div>
           <button
