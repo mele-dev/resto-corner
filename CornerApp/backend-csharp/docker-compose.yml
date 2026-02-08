@@ -1,4 +1,6 @@
-version: '3.8'
+## Docker Compose para desarrollo del backend con MySQL
+## NOTA: Se recomienda usar el docker-compose.yml en la raíz de CornerApp/
+##       que incluye también el frontend.
 
 services:
   # Redis Cache
@@ -27,8 +29,8 @@ services:
       - "5672:5672"   # AMQP port
       - "15672:15672" # Management UI
     environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
@@ -40,22 +42,24 @@ services:
       retries: 5
       start_period: 30s
 
-  # Base de datos SQL Server
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: cornerapp-sqlserver
+  mysql:
+    image: mysql:8.0
+    container_name: cornerapp-mysql
     environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=YourStrong@Passw0rd
-      - MSSQL_PID=Developer
+      MYSQL_ROOT_PASSWORD: Root@12345
+      MYSQL_DATABASE: CornerAppDb
     ports:
-      - "1433:1433"
+      - "3306:3306"
     volumes:
-      - sqlserver-data:/var/opt/mssql
+      - mysql-data:/var/lib/mysql
     networks:
       - cornerapp-network
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong@Passw0rd -Q "SELECT 1" || exit 1
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pRoot@12345"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -68,28 +72,28 @@ services:
       dockerfile: CornerApp.API/Dockerfile
     container_name: cornerapp-api
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=CornerAppDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true;MultipleActiveResultSets=true;Pooling=true;Min Pool Size=5;Max Pool Size=100;Connection Timeout=30
-      - ConnectionStrings__Redis=redis:6379
-      - Redis__InstanceName=CornerApp:
-      - Redis__Enabled=true
-      - RabbitMQ__Enabled=true
-      - RabbitMQ__HostName=rabbitmq
-      - RabbitMQ__Port=5672
-      - RabbitMQ__UserName=guest
-      - RabbitMQ__Password=guest
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-super-secret-key-min-32-characters-long-for-production}
-      - JWT_ISSUER=CornerApp
-      - JWT_AUDIENCE=CornerApp
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=CornerAppDb;User=root;Password=Root@12345;SslMode=None;AllowPublicKeyRetrieval=true;Connection Timeout=30;"
+      ConnectionStrings__Redis: "redis:6379"
+      Redis__InstanceName: "CornerApp:"
+      Redis__Enabled: "true"
+      RabbitMQ__Enabled: "true"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "guest"
+      RabbitMQ__Password: "guest"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-your-super-secret-key-min-32-characters-long-for-production}"
+      JWT_ISSUER: "CornerApp"
+      JWT_AUDIENCE: "CornerApp"
+      EnableSwagger: "true"
     ports:
       - "5000:8080"
-      - "5001:8081"
     volumes:
       - ./logs:/app/logs
       - ./CornerApp.API/wwwroot:/app/wwwroot
     depends_on:
-      sqlserver:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -97,14 +101,14 @@ services:
       - cornerapp-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health", "||", "exit", "1"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
 volumes:
-  sqlserver-data:
+  mysql-data:
     driver: local
   redis-data:
     driver: local

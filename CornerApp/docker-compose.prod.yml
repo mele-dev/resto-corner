@@ -1,0 +1,189 @@
+##  cornerapp – docker compose (producción)
+##
+##  stack optimizado para producción con mysql, backend,
+##  frontend, y servicios opcionales (redis, rabbitmq).
+##
+##  Uso:
+##    cp .env.example .env
+##    nano .env
+##    docker compose -f docker-compose.prod.yml up -d --build
+##    docker compose -f docker-compose.prod.yml logs -f
+
+services:
+
+  # base de datos (mysql 8.0)
+  mysql:
+    image: mysql:8.0
+    container_name: cornerapp-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-CornerAppDb}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - cornerapp-network
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-connections=200
+      --innodb-buffer-pool-size=512M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # cache (redis)
+  redis:
+    image: redis:7-alpine
+    container_name: cornerapp-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - cornerapp-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # message queue (rabbitmq)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: cornerapp-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-admin}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS}"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - cornerapp-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # backend api (.net 8)
+  backend:
+    build:
+      context: ./backend-csharp
+      dockerfile: CornerApp.API/Dockerfile
+    image: cornerapp-backend:latest
+    container_name: cornerapp-backend
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=${MYSQL_DATABASE:-CornerAppDb};User=root;Password=${MYSQL_ROOT_PASSWORD};SslMode=None;AllowPublicKeyRetrieval=true;Connection Timeout=30;"
+      ConnectionStrings__Redis: "redis:6379"
+      Redis__InstanceName: "CornerApp:"
+      Redis__Enabled: "${REDIS_ENABLED:-true}"
+      RabbitMQ__Enabled: "${RABBITMQ_ENABLED:-true}"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "${RABBITMQ_USER:-admin}"
+      RabbitMQ__Password: "${RABBITMQ_PASS}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
+      JWT_ISSUER: "${JWT_ISSUER:-CornerApp}"
+      JWT_AUDIENCE: "${JWT_AUDIENCE:-CornerApp}"
+      Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-https://tu-dominio.com}"
+      Cors__AllowedOrigins__1: "${CORS_ORIGIN_1:-}"
+      EnableSwagger: "${ENABLE_SWAGGER:-false}"
+    volumes:
+      - backend-logs:/app/logs
+      - backend-wwwroot:/app/wwwroot
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cornerapp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # frontend admin (react + nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    image: cornerapp-frontend:latest
+    container_name: cornerapp-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cornerapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/nginx-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+# volúmenes persistentes
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+  backend-logs:
+    driver: local
+  backend-wwwroot:
+    driver: local
+
+# red interna
+networks:
+  cornerapp-network:
+    driver: bridge

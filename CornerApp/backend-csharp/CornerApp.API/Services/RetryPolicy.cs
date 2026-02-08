@@ -152,7 +152,7 @@ public class RetryPolicy : IRetryPolicy
             typeof(System.Net.Http.HttpRequestException),
             typeof(System.Net.Sockets.SocketException),
             typeof(TimeoutException),
-            typeof(Microsoft.Data.SqlClient.SqlException),
+            typeof(MySqlConnector.MySqlException),
             typeof(System.Data.Common.DbException)
         };
 

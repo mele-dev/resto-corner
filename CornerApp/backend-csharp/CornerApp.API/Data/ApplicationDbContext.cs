@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata;
 using CornerApp.API.Models;
 
 namespace CornerApp.API.Data;
@@ -206,7 +205,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Total).HasColumnType("decimal(18,2)");
             entity.Property(e => e.MercadoPagoPreferenceId).HasMaxLength(200);
             entity.Property(e => e.MercadoPagoPaymentId).HasMaxLength(200);
-            entity.Property(e => e.TransferReceiptImage).HasColumnType("nvarchar(max)"); // Base64 image puede ser grande
+            entity.Property(e => e.TransferReceiptImage).HasColumnType("LONGTEXT"); // Base64 image puede ser grande
             entity.Property(e => e.IsReceiptVerified).HasDefaultValue(false);
             entity.Property(e => e.ReceiptVerifiedBy).HasMaxLength(200);
             entity.Property(e => e.IsArchived).HasDefaultValue(false);
@@ -246,7 +245,6 @@ public class ApplicationDbContext : DbContext
                 item.WithOwner().HasForeignKey("OrderId");
                 // Ahora que Id es una propiedad explícita, usar la propiedad directamente
                 item.Property(i => i.Id).ValueGeneratedOnAdd();
-                item.Property(i => i.Id).UseIdentityColumn();
                 item.HasKey(i => i.Id);
                 item.Property(i => i.ProductId).IsRequired();
                 item.Property(i => i.ProductName).IsRequired().HasMaxLength(200);
@@ -284,7 +282,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Url).IsRequired().HasMaxLength(500);
             entity.Property(e => e.EventType).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Secret).HasMaxLength(500);
-            entity.Property(e => e.Headers).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.Headers).HasColumnType("LONGTEXT");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.SuccessCount).HasDefaultValue(0);
             entity.Property(e => e.FailureCount).HasDefaultValue(0);
@@ -377,7 +375,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Status).IsRequired().HasMaxLength(50).HasDefaultValue("Available");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.Notes).HasMaxLength(500);
-            entity.Property(e => e.OrderPlacedAt).HasColumnType("datetime2");
+            entity.Property(e => e.OrderPlacedAt).HasColumnType("DATETIME(6)");
             
             // Relación con Restaurant
             entity.HasOne(e => e.Restaurant)

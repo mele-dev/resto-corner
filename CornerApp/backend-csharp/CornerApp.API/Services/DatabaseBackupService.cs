@@ -1,13 +1,13 @@
-using Microsoft.Data.SqlClient;
+using MySqlConnector;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using CornerApp.API.Data;
 using System.Data;
+using System.Diagnostics;
 
 namespace CornerApp.API.Services;
 
 /// <summary>
-/// Servicio para realizar backups automáticos de SQL Server
 /// </summary>
 public class DatabaseBackupService : IDatabaseBackupService
 {
@@ -50,32 +50,40 @@ public class DatabaseBackupService : IDatabaseBackupService
         {
             var databaseName = ExtractDatabaseName(_connectionString);
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-            var backupFileName = $"{databaseName}_backup_{timestamp}.bak";
+            var backupFileName = $"{databaseName}_backup_{timestamp}.sql";
             var backupFilePath = Path.Combine(_backupDirectory, backupFileName);
 
-            _logger.LogInformation("Iniciando backup de base de datos: {DatabaseName}", databaseName);
+            _logger.LogInformation("Iniciando backup de base de datos MySQL: {DatabaseName}", databaseName);
 
-            using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var csBuilder = new MySqlConnectionStringBuilder(_connectionString);
 
-            // Escapar la ruta del archivo para SQL
-            var escapedBackupPath = backupFilePath.Replace("'", "''");
-            
-            var backupCommand = $@"
-                BACKUP DATABASE [{databaseName}]
-                TO DISK = '{escapedBackupPath}'
-                WITH FORMAT, INIT, NAME = 'CornerApp Full Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 10";
-
-            using var command = new SqlCommand(backupCommand, connection);
-            command.CommandTimeout = 300; // 5 minutos timeout
-
-            await command.ExecuteNonQueryAsync(cancellationToken);
-
-            // Verificar que el archivo se creó
-            if (!File.Exists(backupFilePath))
+            // usar mysqldump para crear el backup
+            var processStartInfo = new ProcessStartInfo
             {
-                throw new InvalidOperationException($"El archivo de backup no se creó: {backupFilePath}");
+                FileName = "mysqldump",
+                Arguments = $"--host={csBuilder.Server} --port={csBuilder.Port} --user={csBuilder.UserID} --password={csBuilder.Password} --single-transaction --routines --triggers --databases {databaseName}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(processStartInfo);
+            if (process == null)
+            {
+                throw new InvalidOperationException("No se pudo iniciar mysqldump. Verificá que esté instalado.");
             }
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"mysqldump falló con código {process.ExitCode}: {error}");
+            }
+
+            await File.WriteAllTextAsync(backupFilePath, output, cancellationToken);
 
             var fileInfo = new FileInfo(backupFilePath);
             var result = new BackupResult
@@ -117,7 +125,7 @@ public class DatabaseBackupService : IDatabaseBackupService
                 return new List<BackupInfo>();
             }
 
-            var backupFiles = Directory.GetFiles(_backupDirectory, "*.bak")
+            var backupFiles = Directory.GetFiles(_backupDirectory, "*.sql")
                 .Select(filePath =>
                 {
                     var fileInfo = new FileInfo(filePath);
@@ -155,38 +163,34 @@ public class DatabaseBackupService : IDatabaseBackupService
             _logger.LogWarning("Iniciando restauración de backup: {BackupFilePath} a base de datos: {DatabaseName}", 
                 backupFilePath, databaseName);
 
-            using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var csBuilder = new MySqlConnectionStringBuilder(_connectionString);
 
-            // Cerrar todas las conexiones a la base de datos
-            var closeConnectionsCommand = $@"
-                ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE";
-
-            using (var command = new SqlCommand(closeConnectionsCommand, connection))
+            var processStartInfo = new ProcessStartInfo
             {
-                command.CommandTimeout = 60;
-                await command.ExecuteNonQueryAsync(cancellationToken);
+                FileName = "mysql",
+                Arguments = $"--host={csBuilder.Server} --port={csBuilder.Port} --user={csBuilder.UserID} --password={csBuilder.Password} {databaseName}",
+                RedirectStandardInput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(processStartInfo);
+            if (process == null)
+            {
+                throw new InvalidOperationException("No se pudo iniciar mysql client. Verificá que esté instalado.");
             }
 
-            // Escapar la ruta del archivo para SQL
-            var escapedBackupPath = backupFilePath.Replace("'", "''");
-            
-            // Restaurar backup
-            var restoreCommand = $@"
-                RESTORE DATABASE [{databaseName}]
-                FROM DISK = '{escapedBackupPath}'
-                WITH REPLACE, RECOVERY";
+            var sqlContent = await File.ReadAllTextAsync(backupFilePath, cancellationToken);
+            await process.StandardInput.WriteAsync(sqlContent);
+            process.StandardInput.Close();
 
-            using var restoreCmd = new SqlCommand(restoreCommand, connection);
-            restoreCmd.CommandTimeout = 600; // 10 minutos timeout
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(cancellationToken);
 
-            await restoreCmd.ExecuteNonQueryAsync(cancellationToken);
-
-            // Volver a modo multi-usuario
-            var multiUserCommand = $@"ALTER DATABASE [{databaseName}] SET MULTI_USER";
-            using (var command = new SqlCommand(multiUserCommand, connection))
+            if (process.ExitCode != 0)
             {
-                await command.ExecuteNonQueryAsync(cancellationToken);
+                throw new InvalidOperationException($"mysql restore falló con código {process.ExitCode}: {error}");
             }
 
             _logger.LogInformation("Backup restaurado exitosamente: {BackupFilePath}", backupFilePath);
@@ -201,8 +205,8 @@ public class DatabaseBackupService : IDatabaseBackupService
 
     private string ExtractDatabaseName(string connectionString)
     {
-        var builder = new SqlConnectionStringBuilder(connectionString);
-        return builder.InitialCatalog ?? "CornerAppDb";
+        var builder = new MySqlConnectionStringBuilder(connectionString);
+        return builder.Database ?? "CornerAppDb";
     }
 
     private async Task CleanupOldBackupsAsync(CancellationToken cancellationToken)
@@ -217,7 +221,7 @@ public class DatabaseBackupService : IDatabaseBackupService
                 return;
             }
 
-            var backupFiles = Directory.GetFiles(_backupDirectory, "*.bak")
+            var backupFiles = Directory.GetFiles(_backupDirectory, "*.sql")
                 .Select(f => new FileInfo(f))
                 .OrderByDescending(f => f.CreationTimeUtc)
                 .ToList();
