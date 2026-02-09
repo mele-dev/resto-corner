@@ -1231,53 +1231,54 @@ export default function TablesViewPage() {
             const fullMessage = `${codeMessage} (Código: ${queryResponse.statusCode})`;
             
             // IMPORTANTE: Manejar código 12 (tiempo excedido) ANTES de verificar isError
-            // El código 12 puede cambiar, así que continuamos consultando 5 veces más
+            // Cuando se recibe código 12, continuar haciendo polling hasta que remainingExpirationTime llegue a 0
             if (queryResponse.statusCode === 12) {
-              code12Attempts++; // Incrementar contador de código 12
-              console.warn(`⚠️ [TablesView] Tiempo de transacción excedido (consulta ${code12Attempts}/${maxCode12Attempts}), continuando polling...`);
-              
-              // Verificar si RemainingExpirationTime = 0 (condición para hacer reverso)
+              code12Attempts++; // Incrementar contador de código 12 (solo para logging)
               const remainingTime = queryResponse.remainingExpirationTime ?? null;
+              
+              // Verificar si RemainingExpirationTime <= 0 (condición para hacer reverso)
+              // Si remainingExpirationTime > 0 (ej: 221), continuar polling sin enviar reverso
               if (remainingTime !== null && remainingTime <= 0) {
-                console.warn(`🔄 [TablesView] RemainingExpirationTime = 0 detectado. Enviando reverso automáticamente...`);
+                console.warn(`🔄 [TablesView] Código 12 con RemainingExpirationTime = 0 detectado. Enviando reverso automáticamente...`);
                 setPosStatusMessage(`⚠️ ${fullMessage} - Tiempo agotado. Enviando reverso...`);
                 
                 try {
-                  // Enviar reverso automáticamente
+                  // Enviar reverso automáticamente cuando código 12 Y remainingExpirationTime <= 0
                   const reverseResult = await api.sendPOSReverse(transactionId, transactionDateTime);
                   
                   if (reverseResult.success) {
                     console.log('✅ [TablesView] Reverso enviado exitosamente');
                     clearInterval(pollInterval);
                     setIsPOSWaitingModalOpen(false);
-                    showToast('Transacción sin respuesta. Reverso enviado automáticamente para anular la transacción.', 'warning');
-                    reject(new Error(`Transacción sin respuesta. Reverso enviado: ${fullMessage}`));
+                    showToast('Tiempo de transacción excedido. Reverso enviado automáticamente para anular la transacción.', 'warning');
+                    reject(new Error(`Tiempo de transacción excedido. Reverso enviado: ${fullMessage}`));
                     return;
                   } else {
                     console.error('❌ [TablesView] Error al enviar reverso:', reverseResult.message);
                     setPosStatusMessage(`⚠️ ${fullMessage} - Error al enviar reverso: ${reverseResult.message}`);
-                    // Continuar con el flujo normal de error
+                    clearInterval(pollInterval);
+                    setIsPOSWaitingModalOpen(false);
+                    showToast(`Error al enviar reverso: ${reverseResult.message}`, 'error');
+                    reject(new Error(`Error al enviar reverso: ${reverseResult.message}`));
+                    return;
                   }
                 } catch (reverseError: any) {
                   console.error('❌ [TablesView] Excepción al enviar reverso:', reverseError);
                   setPosStatusMessage(`⚠️ ${fullMessage} - Error al enviar reverso`);
-                  // Continuar con el flujo normal de error
+                  clearInterval(pollInterval);
+                  setIsPOSWaitingModalOpen(false);
+                  showToast('Error al enviar reverso automático', 'error');
+                  reject(new Error(`Error al enviar reverso: ${reverseError.message || 'Error desconocido'}`));
+                  return;
                 }
               } else {
-                setPosStatusMessage(`⚠️ ${fullMessage} - Consultando nuevamente (${code12Attempts}/${maxCode12Attempts})...`);
-              }
-             
-              // Si ya hicimos 5 consultas adicionales con código 12, mostrar error
-              if (code12Attempts >= maxCode12Attempts) {
-                console.error(`❌ [TablesView] Tiempo excedido después de ${maxCode12Attempts} consultas adicionales con código 12`);
-                clearInterval(pollInterval);
-                setIsPOSWaitingModalOpen(false);
-                showToast(`Tiempo de transacción excedido después de ${maxCode12Attempts} consultas. ${fullMessage}`, 'error');
-                reject(new Error(`Tiempo de transacción excedido: ${fullMessage}`));
+                // Continuar haciendo polling mientras remainingExpirationTime > 0 (ej: 221, 200, 100, etc.)
+                const timeDisplay = remainingTime !== null ? ` (Tiempo restante: ${remainingTime}s)` : '';
+                console.warn(`⚠️ [TablesView] Código 12 detectado - Continuando polling${timeDisplay} (consulta ${code12Attempts})...`);
+                setPosStatusMessage(`⚠️ ${fullMessage}${timeDisplay} - Esperando tiempo de expiración...`);
+                // Continuar consultando hasta que remainingExpirationTime llegue a 0
                 return;
               }
-              // Continuar consultando (hacer 5 consultas más antes de dar por perdida)
-              return;
             } else {
               // Si recibimos un código diferente a 12, reiniciar el contador
               if (code12Attempts > 0) {

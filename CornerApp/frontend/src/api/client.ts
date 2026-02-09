@@ -366,6 +366,65 @@ class ApiClient {
     });
   }
 
+  async sendPOSCancel(
+    amount: number,
+    originalTransactionDateTime?: string,
+    orderId?: number,
+    ticketNumber?: string,
+    taxableAmount?: number,
+    invoiceAmount?: number,
+    taxAmount?: number,
+    invoiceNumber?: string,
+    ciNoCheckDigict?: string,
+    merchant?: string,
+    needToReadCard?: boolean
+  ) {
+    const requestBody = { 
+      amount,
+      originalTransactionDateTime,
+      orderId,
+      ticketNumber,
+      taxableAmount,
+      invoiceAmount,
+      taxAmount,
+      invoiceNumber,
+      ciNoCheckDigict,
+      merchant,
+      needToReadCard
+    };
+
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📤 [POS CANCEL FRONTEND] Enviando anulación al backend');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('Endpoint: /admin/api/pos/cancel');
+    console.log('JSON enviado al backend:', JSON.stringify(requestBody, null, 2));
+    console.log('═══════════════════════════════════════════════════════════');
+
+    const response = await this.request<{ 
+      success: boolean; 
+      message: string; 
+      response?: string; 
+      responseCode?: number;
+      cancelTransactionId?: number;
+      cancelTransactionIdString?: string;
+      cancelTransactionDateTime?: string;
+    }>('/admin/api/pos/cancel', {
+      method: 'POST',
+      body: requestBody,
+    });
+
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📥 [POS CANCEL FRONTEND] Respuesta recibida del backend');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('Respuesta completa:', JSON.stringify(response, null, 2));
+    if (response.response) {
+      console.log('Respuesta del POS:', response.response);
+    }
+    console.log('═══════════════════════════════════════════════════════════');
+
+    return response;
+  }
+
   async queryPOSTransaction(transactionId: number | string, transactionDateTime: string) {
     const requestBody: { transactionId?: number; sTransactionId?: string; transactionDateTime: string } = {
       transactionDateTime,

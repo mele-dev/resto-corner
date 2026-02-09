@@ -143,10 +143,320 @@ export default function ReportsPage() {
   // Refund Ticket Modal
   const [isRefundTicketModalOpen, setIsRefundTicketModalOpen] = useState(false);
   const [selectedRefundOrder, setSelectedRefundOrder] = useState<any>(null);
+  
+  // Modal de Devolución (para solicitar ticket number)
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [selectedOrderForRefund, setSelectedOrderForRefund] = useState<any>(null);
+  const [ticketNumberInput, setTicketNumberInput] = useState('');
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false);
+  
+  // Estados para polling de devolución
+  const [isRefundPollingModalOpen, setIsRefundPollingModalOpen] = useState(false);
+  const [refundPollingStatusMessage, setRefundPollingStatusMessage] = useState('');
+  const [refundPollingAttempt, setRefundPollingAttempt] = useState(0);
+
+  // Modal de Anulación (para solicitar ticket number)
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [selectedOrderForCancel, setSelectedOrderForCancel] = useState<any>(null);
+  const [cancelTicketNumberInput, setCancelTicketNumberInput] = useState('');
+  const [isProcessingCancel, setIsProcessingCancel] = useState(false);
+  
+  // Estados para polling de anulación
+  const [isCancelPollingModalOpen, setIsCancelPollingModalOpen] = useState(false);
+  const [cancelPollingStatusMessage, setCancelPollingStatusMessage] = useState('');
+  const [cancelPollingAttempt, setCancelPollingAttempt] = useState(0);
 
   useEffect(() => {
     loadReports();
   }, [period]);
+
+  // Función para obtener mensaje del código POS
+  const getPOSCodeMessage = (statusCode: number): string => {
+    const codigos: Record<string, string> = {
+      "0": "Resultado OK",
+      "100": "Resultado OK",
+      "101": "Número de pinpad inválido",
+      "102": "Número de sucursal inválido",
+      "103": "Número de caja inválido",
+      "104": "Fecha de la transacción inválida",
+      "105": "Monto no válido",
+      "106": "Cantidad de cuotas inválidas",
+      "107": "Número de plan inválido",
+      "108": "Número de factura inválido",
+      "109": "Moneda ingresada no válida",
+      "110": "Número de ticket inválido",
+      "111": "No existe transacción",
+      "112": "Transacción finalizada",
+      "113": "Identificador de sistema inválido",
+      "10": "Se debe consultar por la transacción",
+      "11": "Aguardando por operación en el pinpad",
+      "12": "Tiempo de transacción excedido, envíe datos nuevamente",
+      "999": "Error no determinado",
+      "-100": "Error no determinado"
+    };
+    return codigos[statusCode.toString()] || `Código desconocido: ${statusCode}`;
+  };
+
+  // Función para hacer polling de la devolución
+  const pollRefundStatus = async (
+    refundTransactionId: number | string,
+    refundTransactionDateTime: string
+  ): Promise<{ success: boolean; message: string }> => {
+    return new Promise((resolve, reject) => {
+      const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
+      const maxCode12Attempts = 12; // Máximo 12 intentos con código 12 antes de considerar tiempo excedido
+      let attempts = 0;
+      let code12Attempts = 0; // Contador específico para código 12
+      
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        setRefundPollingAttempt(attempts);
+        console.log(`🔄 [Reports] Polling devolución intento ${attempts}/${maxAttempts} para transacción ${refundTransactionId}`);
+        
+        try {
+          const queryResponse = await api.queryPOSTransaction(refundTransactionId, refundTransactionDateTime);
+          
+          console.log(`📊 [Reports] Estado del polling de devolución (intento ${attempts}):`, {
+            isCompleted: queryResponse.isCompleted,
+            isPending: queryResponse.isPending,
+            isError: queryResponse.isError,
+            statusMessage: queryResponse.statusMessage,
+            statusCode: queryResponse.statusCode
+          });
+          
+          // Obtener mensaje del código
+          const codeMessage = getPOSCodeMessage(queryResponse.statusCode);
+          const fullMessage = `${codeMessage} (Código: ${queryResponse.statusCode})`;
+          
+          // IMPORTANTE: Manejar código 12 ANTES de verificar otros estados
+          // Hacer 12 consultas aunque reciba código 12, solo después considerar tiempo excedido
+          if (queryResponse.statusCode === 12) {
+            code12Attempts++;
+            console.warn(`⚠️ [Reports] Código 12 detectado - Intento ${code12Attempts}/${maxCode12Attempts}`);
+            
+            // Si ya hicimos 12 intentos con código 12, entonces sí considerar tiempo excedido
+            if (code12Attempts >= maxCode12Attempts) {
+              console.warn(`⏱️ [Reports] Código 12 recibido ${maxCode12Attempts} veces consecutivas. Tiempo excedido.`);
+              clearInterval(pollInterval);
+              setIsRefundPollingModalOpen(false);
+              showToast(`Devolución POS: ${fullMessage} - Tiempo excedido después de ${maxCode12Attempts} consultas`, 'warning');
+              resolve({ 
+                success: true, 
+                message: `Devolución POS: ${fullMessage} - Tiempo excedido` 
+              });
+              return;
+            } else {
+              // Continuar haciendo polling mientras no hayamos alcanzado los 12 intentos con código 12
+              const remainingCode12Attempts = maxCode12Attempts - code12Attempts;
+              setRefundPollingStatusMessage(`⚠️ ${fullMessage} - Consultando... (${code12Attempts}/${maxCode12Attempts}, quedan ${remainingCode12Attempts} consultas)`);
+              // Continuar consultando
+              return;
+            }
+          } else {
+            // Si recibimos un código diferente a 12, reiniciar el contador de código 12
+            if (code12Attempts > 0) {
+              console.log(`✅ [Reports] Código cambió de 12 a ${queryResponse.statusCode}, reiniciando contador de código 12`);
+              code12Attempts = 0;
+            }
+          }
+          
+          // Verificar si la devolución está completada (código 0 o 100)
+          if (queryResponse.isCompleted || queryResponse.statusCode === 0 || queryResponse.statusCode === 100) {
+            console.log('✅ [Reports] Devolución POS completada exitosamente');
+            clearInterval(pollInterval);
+            setIsRefundPollingModalOpen(false);
+            showToast(`Devolución POS completada: ${fullMessage}`, 'success');
+            resolve({ 
+              success: true, 
+              message: `Devolución POS completada: ${fullMessage}` 
+            });
+            return;
+          }
+          
+          // Si hay error (pero no código 12), rechazar
+          if (queryResponse.isError && queryResponse.statusCode !== 12) {
+            console.error('❌ [Reports] Devolución POS rechazada:', queryResponse.statusMessage);
+            clearInterval(pollInterval);
+            setIsRefundPollingModalOpen(false);
+            showToast(`Devolución POS rechazada: ${fullMessage}`, 'error');
+            reject(new Error(`Devolución POS rechazada: ${fullMessage}`));
+            return;
+          }
+          
+          // Si está pendiente o es código 10/11, continuar consultando
+          if (queryResponse.isPending || queryResponse.statusCode === 10 || queryResponse.statusCode === 11) {
+            setRefundPollingStatusMessage(`Esperando respuesta del POS... (${fullMessage})`);
+            
+            // Verificar si se alcanzó el máximo de intentos
+            if (attempts >= maxAttempts) {
+              console.error('⏱️ [Reports] Tiempo de espera excedido para la devolución POS');
+              clearInterval(pollInterval);
+              setIsRefundPollingModalOpen(false);
+              showToast('Tiempo de espera excedido para la devolución POS', 'warning');
+              reject(new Error('Tiempo de espera excedido para la devolución POS'));
+              return;
+            }
+          } else {
+            // Estado desconocido, continuar consultando
+            if (attempts >= maxAttempts) {
+              console.error('⏱️ [Reports] Tiempo de espera excedido para la devolución POS (estado desconocido)');
+              clearInterval(pollInterval);
+              setIsRefundPollingModalOpen(false);
+              showToast('Tiempo de espera excedido para la devolución POS', 'warning');
+              reject(new Error('Tiempo de espera excedido para la devolución POS'));
+              return;
+            }
+          }
+        } catch (error: any) {
+          console.error('❌ [Reports] Error al consultar estado de devolución POS:', error);
+          
+          // Si es un error de conexión y ya hicimos varios intentos, rechazar
+          if (attempts >= 10) {
+            console.warn('🔄 [Reports] Múltiples errores de conexión detectados');
+            clearInterval(pollInterval);
+            setIsRefundPollingModalOpen(false);
+            showToast(`Error al consultar estado de devolución: ${error.message}`, 'error');
+            reject(new Error(`Error al consultar estado de devolución POS: ${error.message}`));
+            return;
+          }
+          
+          // Si no es un error repetido, continuar intentando
+          setRefundPollingStatusMessage(`Error de conexión. Reintentando... (${attempts}/${maxAttempts})`);
+        }
+      }, 2000); // Consultar cada 2 segundos
+    });
+  };
+
+  // Función para hacer polling de la anulación (igual que devolución)
+  const pollCancelStatus = async (
+    cancelTransactionId: number | string,
+    cancelTransactionDateTime: string
+  ): Promise<{ success: boolean; message: string }> => {
+    return new Promise((resolve, reject) => {
+      const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
+      const maxCode12Attempts = 12; // Máximo 12 intentos con código 12 antes de considerar tiempo excedido
+      let attempts = 0;
+      let code12Attempts = 0; // Contador específico para código 12
+      
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        setCancelPollingAttempt(attempts);
+        console.log(`🔄 [Reports] Polling anulación intento ${attempts}/${maxAttempts} para transacción ${cancelTransactionId}`);
+        
+        try {
+          const queryResponse = await api.queryPOSTransaction(cancelTransactionId, cancelTransactionDateTime);
+          
+          console.log(`📊 [Reports] Estado del polling de anulación (intento ${attempts}):`, {
+            isCompleted: queryResponse.isCompleted,
+            isPending: queryResponse.isPending,
+            isError: queryResponse.isError,
+            statusMessage: queryResponse.statusMessage,
+            statusCode: queryResponse.statusCode
+          });
+          
+          // Obtener mensaje del código
+          const codeMessage = getPOSCodeMessage(queryResponse.statusCode);
+          const fullMessage = `${codeMessage} (Código: ${queryResponse.statusCode})`;
+          
+          // IMPORTANTE: Manejar código 12 ANTES de verificar otros estados
+          // Hacer 12 consultas aunque reciba código 12, solo después considerar tiempo excedido
+          if (queryResponse.statusCode === 12) {
+            code12Attempts++;
+            console.warn(`⚠️ [Reports] Código 12 detectado en anulación - Intento ${code12Attempts}/${maxCode12Attempts}`);
+            
+            // Si ya hicimos 12 intentos con código 12, entonces sí considerar tiempo excedido
+            if (code12Attempts >= maxCode12Attempts) {
+              console.warn(`⏱️ [Reports] Código 12 recibido ${maxCode12Attempts} veces consecutivas en anulación. Tiempo excedido.`);
+              clearInterval(pollInterval);
+              setIsCancelPollingModalOpen(false);
+              showToast(`Anulación POS: ${fullMessage} - Tiempo excedido después de ${maxCode12Attempts} consultas`, 'warning');
+              resolve({ 
+                success: true, 
+                message: `Anulación POS: ${fullMessage} - Tiempo excedido` 
+              });
+              return;
+            } else {
+              // Continuar haciendo polling mientras no hayamos alcanzado los 12 intentos con código 12
+              const remainingCode12Attempts = maxCode12Attempts - code12Attempts;
+              setCancelPollingStatusMessage(`⚠️ ${fullMessage} - Consultando... (${code12Attempts}/${maxCode12Attempts}, quedan ${remainingCode12Attempts} consultas)`);
+              // Continuar consultando
+              return;
+            }
+          } else {
+            // Si recibimos un código diferente a 12, reiniciar el contador de código 12
+            if (code12Attempts > 0) {
+              console.log(`✅ [Reports] Código cambió de 12 a ${queryResponse.statusCode} en anulación, reiniciando contador de código 12`);
+              code12Attempts = 0;
+            }
+          }
+          
+          // Verificar si la anulación está completada (código 0 o 100)
+          if (queryResponse.isCompleted || queryResponse.statusCode === 0 || queryResponse.statusCode === 100) {
+            console.log('✅ [Reports] Anulación POS completada exitosamente');
+            clearInterval(pollInterval);
+            setIsCancelPollingModalOpen(false);
+            showToast(`Anulación POS completada: ${fullMessage}`, 'success');
+            resolve({ 
+              success: true, 
+              message: `Anulación POS completada: ${fullMessage}` 
+            });
+            return;
+          }
+          
+          // Si hay error (pero no código 12), rechazar
+          if (queryResponse.isError && queryResponse.statusCode !== 12) {
+            console.error('❌ [Reports] Anulación POS rechazada:', queryResponse.statusMessage);
+            clearInterval(pollInterval);
+            setIsCancelPollingModalOpen(false);
+            showToast(`Anulación POS rechazada: ${fullMessage}`, 'error');
+            reject(new Error(`Anulación POS rechazada: ${fullMessage}`));
+            return;
+          }
+          
+          // Si está pendiente o es código 10/11, continuar consultando
+          if (queryResponse.isPending || queryResponse.statusCode === 10 || queryResponse.statusCode === 11) {
+            setCancelPollingStatusMessage(`Esperando respuesta del POS... (${fullMessage})`);
+            
+            // Verificar si se alcanzó el máximo de intentos
+            if (attempts >= maxAttempts) {
+              console.error('⏱️ [Reports] Tiempo de espera excedido para la anulación POS');
+              clearInterval(pollInterval);
+              setIsCancelPollingModalOpen(false);
+              showToast('Tiempo de espera excedido para la anulación POS', 'warning');
+              reject(new Error('Tiempo de espera excedido para la anulación POS'));
+              return;
+            }
+          } else {
+            // Estado desconocido, continuar consultando
+            if (attempts >= maxAttempts) {
+              console.error('⏱️ [Reports] Tiempo de espera excedido para la anulación POS (estado desconocido)');
+              clearInterval(pollInterval);
+              setIsCancelPollingModalOpen(false);
+              showToast('Tiempo de espera excedido para la anulación POS', 'warning');
+              reject(new Error('Tiempo de espera excedido para la anulación POS'));
+              return;
+            }
+          }
+        } catch (error: any) {
+          console.error('❌ [Reports] Error al consultar estado de anulación POS:', error);
+          
+          // Si es un error de conexión y ya hicimos varios intentos, rechazar
+          if (attempts >= 10) {
+            console.warn('🔄 [Reports] Múltiples errores de conexión detectados en anulación');
+            clearInterval(pollInterval);
+            setIsCancelPollingModalOpen(false);
+            showToast(`Error al consultar estado de anulación: ${error.message}`, 'error');
+            reject(new Error(`Error al consultar estado de anulación POS: ${error.message}`));
+            return;
+          }
+          
+          // Si no es un error repetido, continuar intentando
+          setCancelPollingStatusMessage(`Error de conexión. Reintentando... (${attempts}/${maxAttempts})`);
+        }
+      }, 2000); // Consultar cada 2 segundos
+    });
+  };
 
   const loadReports = async () => {
     try {
@@ -1133,7 +1443,7 @@ export default function ReportsPage() {
                             {formatCurrency(order.total)}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {order.paymentMethod?.toLowerCase() === 'pos' && (order.posTransactionId || order.posTransactionIdString) ? (
+                            {order.paymentMethod?.toLowerCase() === 'pos' ? (
                               <div className="flex items-center justify-center gap-2">
                                 {order.posRefundTransactionId || order.posRefundTransactionIdString ? (
                                   <>
@@ -1153,14 +1463,33 @@ export default function ReportsPage() {
                                     </span>
                                   </>
                                 ) : (
-                                  <button
-                                    onClick={() => handlePOSVoid(order)}
-                                    className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5"
-                                    title="Hacer devolución de transacción POS"
-                                  >
-                                    <RotateCcw size={14} />
-                                    Devolver
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedOrderForRefund(order);
+                                        setTicketNumberInput('');
+                                        setRefundAmountInput(order.total.toString());
+                                        setIsRefundModalOpen(true);
+                                      }}
+                                      className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5"
+                                      title="Hacer devolución de transacción POS"
+                                    >
+                                      <RotateCcw size={14} />
+                                      Devolución
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedOrderForCancel(order);
+                                        setCancelTicketNumberInput('');
+                                        setIsCancelModalOpen(true);
+                                      }}
+                                      className="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5"
+                                      title="Anular transacción POS"
+                                    >
+                                      <AlertCircle size={14} />
+                                      Anulación
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             ) : (
@@ -1298,6 +1627,669 @@ export default function ReportsPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal de Devolución - Solicitar Ticket Number */}
+      <Modal
+        isOpen={isRefundModalOpen}
+        onClose={() => {
+          if (!isProcessingRefund) {
+            setIsRefundModalOpen(false);
+            setSelectedOrderForRefund(null);
+            setTicketNumberInput('');
+          }
+        }}
+        title="Devolución de Transacción POS"
+        size="md"
+      >
+        {selectedOrderForRefund && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <h3 className="font-semibold text-gray-800 mb-3">Información de la Transacción</h3>
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Monto total de la transacción:</span>
+                  <span className="ml-2 font-medium text-gray-900">
+                    {formatCurrency(selectedOrderForRefund.total)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Hora de la transacción:</span>
+                  <span className="ml-2 font-medium">
+                    {selectedOrderForRefund.posTransactionDateTime ? (() => {
+                      try {
+                        const dt = selectedOrderForRefund.posTransactionDateTime;
+                        if (dt.length >= 14) {
+                          const year = dt.substring(0, 4);
+                          const month = dt.substring(4, 6);
+                          const day = dt.substring(6, 8);
+                          const hour = dt.substring(8, 10);
+                          const minute = dt.substring(10, 12);
+                          const second = dt.substring(12, 14);
+                          return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
+                        }
+                        return dt;
+                      } catch {
+                        return selectedOrderForRefund.posTransactionDateTime;
+                      }
+                    })() : new Date(selectedOrderForRefund.createdAt).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Número de transacción:</span>
+                  <span className="ml-2 font-medium font-mono">
+                    {selectedOrderForRefund.posTransactionId || selectedOrderForRefund.posTransactionIdString || 'No disponible'}
+                  </span>
+                </div>
+                {(!selectedOrderForRefund.posTransactionId && !selectedOrderForRefund.posTransactionIdString) && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-xs text-yellow-800">
+                      ⚠️ Este pedido no tiene número de transacción POS registrado. Asegúrese de ingresar el número de ticket correcto.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="refundAmount" className="block text-sm font-medium text-gray-700">
+                Monto a Devolver <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">UYU</span>
+                <input
+                  id="refundAmount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={selectedOrderForRefund.total}
+                  value={refundAmountInput}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Permitir vacío temporalmente mientras se escribe
+                    if (value === '') {
+                      setRefundAmountInput('');
+                      return;
+                    }
+                    const numValue = parseFloat(value);
+                    // Validar que no sea mayor al total
+                    if (!isNaN(numValue) && numValue > 0 && numValue <= selectedOrderForRefund.total) {
+                      setRefundAmountInput(value);
+                    } else if (numValue > selectedOrderForRefund.total) {
+                      // Si es mayor, mantener el valor anterior
+                      return;
+                    } else if (numValue <= 0) {
+                      // Si es 0 o negativo, no permitir
+                      return;
+                    }
+                  }}
+                  placeholder="0.00"
+                  className="w-full pl-16 pr-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900 placeholder-gray-400"
+                  disabled={isProcessingRefund}
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                Monto máximo: {formatCurrency(selectedOrderForRefund.total)}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="ticketNumber" className="block text-sm font-medium text-gray-700">
+                Número de Ticket <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="ticketNumber"
+                type="text"
+                value={ticketNumberInput}
+                onChange={(e) => setTicketNumberInput(e.target.value)}
+                placeholder="Ingrese el número de ticket"
+                className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900 placeholder-gray-400"
+                disabled={isProcessingRefund}
+                autoFocus
+              />
+              <p className="text-xs text-gray-500">
+                Ingrese el número de ticket de la transacción original
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <button
+                onClick={() => {
+                  if (!isProcessingRefund) {
+                    setIsRefundModalOpen(false);
+                    setSelectedOrderForRefund(null);
+                    setTicketNumberInput('');
+                    setRefundAmountInput('');
+                  }
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isProcessingRefund}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!ticketNumberInput.trim()) {
+                    showToast('Por favor ingrese el número de ticket', 'error');
+                    return;
+                  }
+
+                  // Validar monto
+                  const refundAmount = parseFloat(refundAmountInput);
+                  if (isNaN(refundAmount) || refundAmount <= 0) {
+                    showToast('Por favor ingrese un monto válido mayor a 0', 'error');
+                    return;
+                  }
+
+                  if (refundAmount > selectedOrderForRefund.total) {
+                    showToast(`El monto no puede ser mayor al total de la transacción (${formatCurrency(selectedOrderForRefund.total)})`, 'error');
+                    return;
+                  }
+
+                  setIsProcessingRefund(true);
+                  try {
+                    // Si hay múltiples pedidos agrupados, usar el primero para obtener la información
+                    const firstOrder = selectedOrderForRefund.orders && selectedOrderForRefund.orders.length > 0 
+                      ? selectedOrderForRefund.orders[0] 
+                      : selectedOrderForRefund;
+                    const orderCount = selectedOrderForRefund.orders ? selectedOrderForRefund.orders.length : 1;
+
+                    // Enviar devolución con el monto y ticketNumber ingresados
+                    const result = await api.sendPOSVoid(
+                      refundAmount,
+                      selectedOrderForRefund.posTransactionDateTime || firstOrder.posTransactionDateTime,
+                      firstOrder.id,
+                      ticketNumberInput.trim()
+                    );
+
+                    if (result.success && result.refundTransactionId && result.refundTransactionDateTime) {
+                      // Cerrar modal de devolución y abrir modal de polling
+                      setIsRefundModalOpen(false);
+                      setIsRefundPollingModalOpen(true);
+                      setRefundPollingStatusMessage('Esperando respuesta del POS...');
+                      setRefundPollingAttempt(0);
+                      
+                      // Iniciar polling de la devolución
+                      try {
+                        const refundTransactionId = result.refundTransactionId || result.refundTransactionIdString || '';
+                        await pollRefundStatus(refundTransactionId, result.refundTransactionDateTime);
+                        
+                        // Si el polling fue exitoso, recargar movimientos
+                        if (cashRegisterMovements?.cashRegister?.id) {
+                          const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
+                          // Re-aplicar el agrupamiento
+                          if (movements.orders) {
+                            const groupedOrders: any[] = [];
+                            const posTransactionsMap = new Map<string, any>();
+                            const nonPosOrders: any[] = [];
+
+                            movements.orders.forEach((o: any) => {
+                              if (o.paymentMethod?.toLowerCase() === 'pos' && (o.posTransactionId || o.posTransactionIdString)) {
+                                const transactionId = o.posTransactionId?.toString() || o.posTransactionIdString || '';
+                                
+                                if (posTransactionsMap.has(transactionId)) {
+                                  const existing = posTransactionsMap.get(transactionId);
+                                  existing.orders.push(o);
+                                  existing.total += o.total;
+                                  existing.itemsCount += o.itemsCount;
+                                  existing.orderIds.push(o.id);
+                                } else {
+                                  posTransactionsMap.set(transactionId, {
+                                    ...o,
+                                    orders: [o],
+                                    orderIds: [o.id],
+                                    posTransactionId: o.posTransactionId,
+                                    posTransactionIdString: o.posTransactionIdString,
+                                    posTransactionDateTime: o.posTransactionDateTime,
+                                    posResponse: o.posResponse,
+                                    posRefundTransactionId: o.posRefundTransactionId,
+                                    posRefundTransactionIdString: o.posRefundTransactionIdString,
+                                    posRefundTransactionDateTime: o.posRefundTransactionDateTime,
+                                    posRefundResponse: o.posRefundResponse,
+                                    posRefundedAt: o.posRefundedAt,
+                                    createdAt: o.createdAt,
+                                    customerNames: o.customerName ? [o.customerName] : [],
+                                    tableIds: o.tableId ? [o.tableId] : []
+                                  });
+                                }
+                              } else {
+                                nonPosOrders.push(o);
+                              }
+                            });
+
+                            groupedOrders.push(...Array.from(posTransactionsMap.values()));
+                            groupedOrders.push(...nonPosOrders);
+                            groupedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                            movements.orders = groupedOrders;
+                          }
+                          setCashRegisterMovements(movements);
+                        }
+                        
+                        setSelectedOrderForRefund(null);
+                        setTicketNumberInput('');
+                      } catch (pollError: any) {
+                        console.error('Error en polling de devolución:', pollError);
+                        // El error ya fue manejado en pollRefundStatus con toast
+                      }
+                    } else if (result.success) {
+                      // Si no hay transactionId, mostrar mensaje pero no hacer polling
+                      showToast(`Devolución POS enviada${orderCount > 1 ? ` para ${orderCount} pedidos` : ''}`, 'success');
+                      setIsRefundModalOpen(false);
+                      setSelectedOrderForRefund(null);
+                      setTicketNumberInput('');
+                      
+                      // Recargar movimientos
+                      if (cashRegisterMovements?.cashRegister?.id) {
+                        const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
+                        if (movements.orders) {
+                          const groupedOrders: any[] = [];
+                          const posTransactionsMap = new Map<string, any>();
+                          const nonPosOrders: any[] = [];
+
+                          movements.orders.forEach((o: any) => {
+                            if (o.paymentMethod?.toLowerCase() === 'pos' && (o.posTransactionId || o.posTransactionIdString)) {
+                              const transactionId = o.posTransactionId?.toString() || o.posTransactionIdString || '';
+                              
+                              if (posTransactionsMap.has(transactionId)) {
+                                const existing = posTransactionsMap.get(transactionId);
+                                existing.orders.push(o);
+                                existing.total += o.total;
+                                existing.itemsCount += o.itemsCount;
+                                existing.orderIds.push(o.id);
+                              } else {
+                                posTransactionsMap.set(transactionId, {
+                                  ...o,
+                                  orders: [o],
+                                  orderIds: [o.id],
+                                  posTransactionId: o.posTransactionId,
+                                  posTransactionIdString: o.posTransactionIdString,
+                                  posTransactionDateTime: o.posTransactionDateTime,
+                                  posResponse: o.posResponse,
+                                  posRefundTransactionId: o.posRefundTransactionId,
+                                  posRefundTransactionIdString: o.posRefundTransactionIdString,
+                                  posRefundTransactionDateTime: o.posRefundTransactionDateTime,
+                                  posRefundResponse: o.posRefundResponse,
+                                  posRefundedAt: o.posRefundedAt,
+                                  createdAt: o.createdAt,
+                                  customerNames: o.customerName ? [o.customerName] : [],
+                                  tableIds: o.tableId ? [o.tableId] : []
+                                });
+                              }
+                            } else {
+                              nonPosOrders.push(o);
+                            }
+                          });
+
+                          groupedOrders.push(...Array.from(posTransactionsMap.values()));
+                          groupedOrders.push(...nonPosOrders);
+                          groupedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                          movements.orders = groupedOrders;
+                        }
+                        setCashRegisterMovements(movements);
+                      }
+                    } else {
+                      showToast(`Devolución POS: ${result.message}`, result.responseCode === -100 ? 'error' : 'warning');
+                    }
+                  } catch (error: any) {
+                    showToast(`Error al procesar devolución POS: ${error.message}`, 'error');
+                  } finally {
+                    setIsProcessingRefund(false);
+                  }
+                }}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                disabled={isProcessingRefund || !ticketNumberInput.trim() || !refundAmountInput || parseFloat(refundAmountInput) <= 0}
+              >
+                {isProcessingRefund ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={16} />
+                    Confirmar Devolución
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de Polling de Devolución */}
+      <Modal
+        isOpen={isRefundPollingModalOpen}
+        onClose={() => {
+          // No permitir cerrar mientras se está haciendo polling
+          if (refundPollingAttempt === 0) {
+            setIsRefundPollingModalOpen(false);
+          }
+        }}
+        title="Procesando Devolución POS"
+        size="md"
+      >
+        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+          <Loader2 className="w-12 h-12 animate-spin text-red-500" />
+          <div className="text-center space-y-2">
+            <p className="text-lg font-medium text-gray-800">
+              {refundPollingStatusMessage || 'Esperando respuesta del POS...'}
+            </p>
+            {refundPollingAttempt > 0 && (
+              <p className="text-sm text-gray-500">
+                Consultando estado... (Intento {refundPollingAttempt}/60)
+              </p>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de Anulación - Solicitar Ticket Number */}
+      <Modal
+        isOpen={isCancelModalOpen}
+        onClose={() => {
+          if (!isProcessingCancel) {
+            setIsCancelModalOpen(false);
+            setSelectedOrderForCancel(null);
+            setCancelTicketNumberInput('');
+          }
+        }}
+        title="Anulación de Transacción POS"
+        size="md"
+      >
+        {selectedOrderForCancel && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <h3 className="font-semibold text-gray-800 mb-3">Información de la Transacción</h3>
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Monto total de la transacción:</span>
+                  <span className="ml-2 font-bold text-lg text-gray-900">
+                    {formatCurrency(selectedOrderForCancel.total)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Hora de la transacción:</span>
+                  <span className="ml-2 font-medium">
+                    {selectedOrderForCancel.posTransactionDateTime ? (() => {
+                      try {
+                        const dt = selectedOrderForCancel.posTransactionDateTime;
+                        if (dt.length >= 14) {
+                          const year = dt.substring(0, 4);
+                          const month = dt.substring(4, 6);
+                          const day = dt.substring(6, 8);
+                          const hour = dt.substring(8, 10);
+                          const minute = dt.substring(10, 12);
+                          const second = dt.substring(12, 14);
+                          return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
+                        }
+                        return dt;
+                      } catch {
+                        return selectedOrderForCancel.posTransactionDateTime;
+                      }
+                    })() : new Date(selectedOrderForCancel.createdAt).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Número de transacción:</span>
+                  <span className="ml-2 font-medium font-mono">
+                    {selectedOrderForCancel.posTransactionId || selectedOrderForCancel.posTransactionIdString || 'No disponible'}
+                  </span>
+                </div>
+                {(!selectedOrderForCancel.posTransactionId && !selectedOrderForCancel.posTransactionIdString) && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-xs text-yellow-800">
+                      ⚠️ Este pedido no tiene número de transacción POS registrado. Asegúrese de ingresar el número de ticket correcto.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <p className="text-sm text-orange-800">
+                ⚠️ <strong>Anulación:</strong> Se anulará el monto total de la transacción. Esta acción no se puede deshacer.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="cancelTicketNumber" className="block text-sm font-medium text-gray-700">
+                Número de Ticket <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="cancelTicketNumber"
+                type="text"
+                value={cancelTicketNumberInput}
+                onChange={(e) => setCancelTicketNumberInput(e.target.value)}
+                placeholder="Ingrese el número de ticket"
+                className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none text-gray-900 placeholder-gray-400"
+                disabled={isProcessingCancel}
+                autoFocus
+              />
+              <p className="text-xs text-gray-500">
+                Ingrese el número de ticket de la transacción original
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <button
+                onClick={() => {
+                  if (!isProcessingCancel) {
+                    setIsCancelModalOpen(false);
+                    setSelectedOrderForCancel(null);
+                    setCancelTicketNumberInput('');
+                  }
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isProcessingCancel}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!cancelTicketNumberInput.trim()) {
+                    showToast('Por favor ingrese el número de ticket', 'error');
+                    return;
+                  }
+
+                  setIsProcessingCancel(true);
+                  try {
+                    // Si hay múltiples pedidos agrupados, usar el primero para obtener la información
+                    const firstOrder = selectedOrderForCancel.orders && selectedOrderForCancel.orders.length > 0 
+                      ? selectedOrderForCancel.orders[0] 
+                      : selectedOrderForCancel;
+                    const orderCount = selectedOrderForCancel.orders ? selectedOrderForCancel.orders.length : 1;
+
+                    // Enviar anulación con el monto total y ticketNumber ingresado
+                    const result = await api.sendPOSCancel(
+                      selectedOrderForCancel.total,
+                      selectedOrderForCancel.posTransactionDateTime || firstOrder.posTransactionDateTime,
+                      firstOrder.id,
+                      cancelTicketNumberInput.trim()
+                    );
+
+                    if (result.success && result.cancelTransactionId && result.cancelTransactionDateTime) {
+                      // Cerrar modal de anulación y abrir modal de polling
+                      setIsCancelModalOpen(false);
+                      setIsCancelPollingModalOpen(true);
+                      setCancelPollingStatusMessage('Esperando respuesta del POS...');
+                      setCancelPollingAttempt(0);
+                      
+                      // Iniciar polling de la anulación
+                      try {
+                        const cancelTransactionId = result.cancelTransactionId || result.cancelTransactionIdString || '';
+                        await pollCancelStatus(cancelTransactionId, result.cancelTransactionDateTime);
+                        
+                        // Si el polling fue exitoso, recargar movimientos
+                        if (cashRegisterMovements?.cashRegister?.id) {
+                          const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
+                          // Re-aplicar el agrupamiento
+                          if (movements.orders) {
+                            const groupedOrders: any[] = [];
+                            const posTransactionsMap = new Map<string, any>();
+                            const nonPosOrders: any[] = [];
+
+                            movements.orders.forEach((o: any) => {
+                              if (o.paymentMethod?.toLowerCase() === 'pos' && (o.posTransactionId || o.posTransactionIdString)) {
+                                const transactionId = o.posTransactionId?.toString() || o.posTransactionIdString || '';
+                                
+                                if (posTransactionsMap.has(transactionId)) {
+                                  const existing = posTransactionsMap.get(transactionId);
+                                  existing.orders.push(o);
+                                  existing.total += o.total;
+                                  existing.itemsCount += o.itemsCount;
+                                  existing.orderIds.push(o.id);
+                                } else {
+                                  posTransactionsMap.set(transactionId, {
+                                    ...o,
+                                    orders: [o],
+                                    orderIds: [o.id],
+                                    posTransactionId: o.posTransactionId,
+                                    posTransactionIdString: o.posTransactionIdString,
+                                    posTransactionDateTime: o.posTransactionDateTime,
+                                    posResponse: o.posResponse,
+                                    posRefundTransactionId: o.posRefundTransactionId,
+                                    posRefundTransactionIdString: o.posRefundTransactionIdString,
+                                    posRefundTransactionDateTime: o.posRefundTransactionDateTime,
+                                    posRefundResponse: o.posRefundResponse,
+                                    posRefundedAt: o.posRefundedAt,
+                                    createdAt: o.createdAt,
+                                    customerNames: o.customerName ? [o.customerName] : [],
+                                    tableIds: o.tableId ? [o.tableId] : []
+                                  });
+                                }
+                              } else {
+                                nonPosOrders.push(o);
+                              }
+                            });
+
+                            groupedOrders.push(...Array.from(posTransactionsMap.values()));
+                            groupedOrders.push(...nonPosOrders);
+                            groupedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                            movements.orders = groupedOrders;
+                          }
+                          setCashRegisterMovements(movements);
+                        }
+                        
+                        setSelectedOrderForCancel(null);
+                        setCancelTicketNumberInput('');
+                      } catch (pollError: any) {
+                        console.error('Error en polling de anulación:', pollError);
+                        // El error ya fue manejado en pollCancelStatus con toast
+                      }
+                    } else if (result.success) {
+                      // Si no hay transactionId, mostrar mensaje pero no hacer polling
+                      showToast(`Anulación POS enviada${orderCount > 1 ? ` para ${orderCount} pedidos` : ''}`, 'success');
+                      setIsCancelModalOpen(false);
+                      setSelectedOrderForCancel(null);
+                      setCancelTicketNumberInput('');
+                      
+                      // Recargar movimientos
+                      if (cashRegisterMovements?.cashRegister?.id) {
+                        const movements = await api.getCashRegisterMovements(cashRegisterMovements.cashRegister.id);
+                        if (movements.orders) {
+                          const groupedOrders: any[] = [];
+                          const posTransactionsMap = new Map<string, any>();
+                          const nonPosOrders: any[] = [];
+
+                          movements.orders.forEach((o: any) => {
+                            if (o.paymentMethod?.toLowerCase() === 'pos' && (o.posTransactionId || o.posTransactionIdString)) {
+                              const transactionId = o.posTransactionId?.toString() || o.posTransactionIdString || '';
+                              
+                              if (posTransactionsMap.has(transactionId)) {
+                                const existing = posTransactionsMap.get(transactionId);
+                                existing.orders.push(o);
+                                existing.total += o.total;
+                                existing.itemsCount += o.itemsCount;
+                                existing.orderIds.push(o.id);
+                              } else {
+                                posTransactionsMap.set(transactionId, {
+                                  ...o,
+                                  orders: [o],
+                                  orderIds: [o.id],
+                                  posTransactionId: o.posTransactionId,
+                                  posTransactionIdString: o.posTransactionIdString,
+                                  posTransactionDateTime: o.posTransactionDateTime,
+                                  posResponse: o.posResponse,
+                                  posRefundTransactionId: o.posRefundTransactionId,
+                                  posRefundTransactionIdString: o.posRefundTransactionIdString,
+                                  posRefundTransactionDateTime: o.posRefundTransactionDateTime,
+                                  posRefundResponse: o.posRefundResponse,
+                                  posRefundedAt: o.posRefundedAt,
+                                  createdAt: o.createdAt,
+                                  customerNames: o.customerName ? [o.customerName] : [],
+                                  tableIds: o.tableId ? [o.tableId] : []
+                                });
+                              }
+                            } else {
+                              nonPosOrders.push(o);
+                            }
+                          });
+
+                          groupedOrders.push(...Array.from(posTransactionsMap.values()));
+                          groupedOrders.push(...nonPosOrders);
+                          groupedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                          movements.orders = groupedOrders;
+                        }
+                        setCashRegisterMovements(movements);
+                      }
+                    } else {
+                      showToast(`Anulación POS: ${result.message}`, result.responseCode === -100 ? 'error' : 'warning');
+                    }
+                  } catch (error: any) {
+                    showToast(`Error al procesar anulación POS: ${error.message}`, 'error');
+                  } finally {
+                    setIsProcessingCancel(false);
+                  }
+                }}
+                className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                disabled={isProcessingCancel || !cancelTicketNumberInput.trim()}
+              >
+                {isProcessingCancel ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle size={16} />
+                    Confirmar Anulación
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de Polling de Anulación */}
+      <Modal
+        isOpen={isCancelPollingModalOpen}
+        onClose={() => {
+          // No permitir cerrar mientras se está haciendo polling
+          if (cancelPollingAttempt === 0) {
+            setIsCancelPollingModalOpen(false);
+          }
+        }}
+        title="Procesando Anulación POS"
+        size="md"
+      >
+        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+          <Loader2 className="w-12 h-12 animate-spin text-orange-500" />
+          <div className="text-center space-y-2">
+            <p className="text-lg font-medium text-gray-800">
+              {cancelPollingStatusMessage || 'Esperando respuesta del POS...'}
+            </p>
+            {cancelPollingAttempt > 0 && (
+              <p className="text-sm text-gray-500">
+                Consultando estado... (Intento {cancelPollingAttempt}/60)
+              </p>
+            )}
+          </div>
+        </div>
       </Modal>
     </div>
   );
