@@ -1,18 +1,16 @@
-# Dockerfile optimizado para Railway
-# Este Dockerfile funciona cuando el contexto de build es CornerApp.API/
-
 # Etapa 1: Build
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copiar archivo de proyecto directamente (estamos en el directorio del proyecto)
-COPY ["CornerApp.API.csproj", "./"]
-RUN dotnet restore "CornerApp.API.csproj"
+# Copiar archivos de proyecto
+COPY ["CornerApp.API/CornerApp.API.csproj", "CornerApp.API/"]
+RUN dotnet restore "CornerApp.API/CornerApp.API.csproj"
 
 # Copiar todo el código fuente
 COPY . .
 
 # Build de la aplicación
+WORKDIR "/src/CornerApp.API"
 RUN dotnet build "CornerApp.API.csproj" -c Release -o /app/build
 
 # Etapa 2: Publish
