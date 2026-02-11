@@ -66,9 +66,10 @@ artifacts/
 *.coveragexml
 
 # Docker
-Dockerfile*
+# NOTA: NO ignorar Dockerfile porque Railway/Render lo necesitan
+# Dockerfile*
 docker-compose*
-.dockerignore
+# .dockerignore
 
 # Git
 .git/
