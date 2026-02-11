@@ -1,10 +1,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-COPY ["CornerApp.API/CornerApp.API.csproj", "CornerApp.API/"]
+# Las rutas son relativas a la raíz del repositorio
+COPY ["CornerApp/backend-csharp/CornerApp.API/CornerApp.API.csproj", "CornerApp.API/"]
 RUN dotnet restore "CornerApp.API/CornerApp.API.csproj"
 
-COPY . .
+# Copiar todo el código del backend
+COPY CornerApp/backend-csharp/ .
 
 WORKDIR "/src/CornerApp.API"
 RUN dotnet build "CornerApp.API.csproj" -c Release -o /app/build
