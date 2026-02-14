@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info } from 'lucide-react';
 import Modal from '../Modal/Modal';
 
 interface HelpIconProps {
-  title: string;
+  title: string | React.ReactNode;
   content: React.ReactNode;
   className?: string;
 }

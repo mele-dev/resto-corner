@@ -1,4 +1,3 @@
-import React from 'react';
 import { Order, Table, PaymentMethod } from '../../types';
 import Logo from '../Logo/Logo';
 
@@ -22,14 +21,6 @@ export default function Invoice({ orders, table, totalAmount, paymentMethod, pay
     minute: '2-digit'
   });
 
-  // Agrupar items por pedido
-  const allItems = orders.flatMap(order => 
-    (order.items || []).map(item => ({
-      ...item,
-      orderId: order.id,
-      orderCreatedAt: order.createdAt
-    }))
-  );
 
   return (
     <div className="invoice-container bg-white p-8 max-w-2xl mx-auto" style={{ fontFamily: 'Arial, sans-serif' }}>
@@ -51,7 +42,7 @@ export default function Invoice({ orders, table, totalAmount, paymentMethod, pay
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Detalle de Pedidos</h2>
         <div className="space-y-4">
-          {orders.map((order, orderIndex) => (
+          {orders.map((order) => (
             <div key={order.id} className="border-b border-gray-200 pb-3">
               <div className="flex justify-between items-start mb-2">
                 <div>
@@ -81,14 +72,9 @@ export default function Invoice({ orders, table, totalAmount, paymentMethod, pay
                             ))}
                           </div>
                         )}
-                        {item.comments && (
-                          <div className="ml-4 text-xs text-gray-500 italic">
-                            Nota: {item.comments}
-                          </div>
-                        )}
                       </div>
                       <span className="text-gray-700 font-medium">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        ${(item.unitPrice * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   ))}

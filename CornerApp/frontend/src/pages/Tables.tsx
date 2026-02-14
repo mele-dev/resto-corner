@@ -629,7 +629,7 @@ export default function TablesPage() {
         const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
         let attempts = 0;
         let code12Attempts = 0; // Contador específico para código 12
-        const maxCode12Attempts = 5; // Máximo 5 consultas adicionales cuando recibe código 12
+        // const maxCode12Attempts = 5; // Máximo 5 consultas adicionales cuando recibe código 12
         
         const pollInterval = setInterval(async () => {
           attempts++;

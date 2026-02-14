@@ -6,7 +6,6 @@ import {
   User,
   Save,
   Loader2,
-  CheckCircle,
   AlertCircle,
   Eye,
   EyeOff,

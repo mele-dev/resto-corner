@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, Plus, Search, DollarSign, Package, MapPin, Phone, Clock, CheckCircle, XCircle, AlertCircle, X, Eye, ShoppingCart, CreditCard } from 'lucide-react';
+import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
@@ -1266,7 +1266,7 @@ export default function DeliveryPersonsManagementPage() {
         }
         confirmText="Cancelar Pedido"
         cancelText="No Cancelar"
-        confirmButtonClass="bg-red-500 hover:bg-red-600"
+        type="danger"
       />
 
       {/* Close Cash Register Modal */}

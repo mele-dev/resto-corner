@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, Plus, Minus, Trash2, MapPin, Phone, User, CreditCard, LogOut, Package, Truck, AlertCircle } from 'lucide-react';
 import { useToast } from '../components/Toast/ToastContext';
-import { api } from '../api/client';
 import type { Product, Category, PaymentMethod, CreateOrderRequest } from '../types';
 
 interface CartItem {
@@ -33,7 +32,6 @@ export default function CustomerOrderPage() {
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [receiptImagePreview, setReceiptImagePreview] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState<string>('');
-  const [restaurantId, setRestaurantId] = useState<number | null>(null);
   const [availableDeliveryPersons, setAvailableDeliveryPersons] = useState<Array<{ id: number; name: string; phone?: string }>>([]);
   const [selectedDeliveryPersonId, setSelectedDeliveryPersonId] = useState<number | null>(null);
   const [businessStatus, setBusinessStatus] = useState<{ isOpen: boolean; isWithinHours: boolean; message: string } | null>(null);
@@ -54,7 +52,6 @@ export default function CustomerOrderPage() {
       setCustomerName(userData.name || '');
       setCustomerAddress(userData.defaultAddress || '');
       setCustomerPhone(userData.phone || '');
-      setRestaurantId(userData.restaurantId || null);
       
       // Cargar nombre del restaurante
       if (userData.restaurantId) {

@@ -15,7 +15,6 @@ import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
 import ConfirmModal from '../components/Modal/ConfirmModal';
-import Pagination from '../components/Pagination/Pagination';
 import HelpIcon from '../components/HelpIcon/HelpIcon';
 import type { Customer, CreateCustomerRequest } from '../types';
 
@@ -154,7 +153,7 @@ export default function CustomersPage() {
   };
 
   // Paginación
-  const totalPages = Math.ceil((customers?.length || 0) / itemsPerPage);
+  // const totalPages = Math.ceil((customers?.length || 0) / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedCustomers = (customers || []).slice(startIndex, endIndex);

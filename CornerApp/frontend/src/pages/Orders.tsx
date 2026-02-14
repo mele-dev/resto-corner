@@ -36,6 +36,7 @@ const statusConfig: Record<OrderStatus, { label: string; color: string; icon: ty
   pending: { label: 'Pendiente', color: 'bg-yellow-500', icon: Clock },
   preparing: { label: 'Preparando', color: 'bg-orange-500', icon: ChefHat },
   delivering: { label: 'En camino', color: 'bg-purple-500', icon: Truck },
+  delivered: { label: 'Entregado', color: 'bg-green-500', icon: CheckCircle },
   completed: { label: 'Completado', color: 'bg-green-600', icon: CheckCircle },
   cancelled: { label: 'Cancelado', color: 'bg-red-500', icon: XCircle },
 };
@@ -54,7 +55,7 @@ export default function OrdersPage() {
   const [customDateTo, setCustomDateTo] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [itemsPerPage] = useState(20);
   
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -1011,6 +1012,7 @@ export default function OrdersPage() {
                     className="w-full rounded-lg border border-gray-300 cursor-pointer hover:opacity-90 transition-opacity"
                     onClick={() => {
                       // Abrir imagen en nueva ventana para verla en tamaño completo
+                      if (!selectedOrder.transferReceiptImage) return;
                       const imageUrl = selectedOrder.transferReceiptImage.startsWith('data:') 
                         ? selectedOrder.transferReceiptImage 
                         : `data:image/jpeg;base64,${selectedOrder.transferReceiptImage}`;
@@ -1247,8 +1249,7 @@ export default function OrdersPage() {
               </div>
               <div className="text-right font-bold text-lg text-primary-600">
                 Total: ${newOrder.items.reduce((total, item) => {
-                  const product = products.find(p => p.id === item.productId);
-                  return total + (product ? product.price * item.quantity : 0);
+                  return total + (item.price * item.quantity);
                 }, 0).toFixed(2)}
               </div>
             </div>

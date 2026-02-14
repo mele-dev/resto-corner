@@ -144,25 +144,18 @@ export default function ActiveOrdersPage() {
       });
 
       // Filtrar según el tipo de pedido
-      // Si es repartidor, solo incluir pedidos asignados a él (sin tableId y con deliveryPersonId)
       let shouldInclude: boolean;
-      if (isDeliveryPerson) {
-        shouldInclude = normalizedOrder.tableId == null && normalizedOrder.deliveryPersonId != null;
-      } else if (orderType === 'all') {
+      if (orderType === 'all') {
         // En "Activos" mostrar TODOS los pedidos (tanto de salón como de delivery)
         shouldInclude = true;
       } else if (orderType === 'salon') {
         // Solo pedidos de salón (con tableId)
         shouldInclude = normalizedOrder.tableId != null;
-      } else if (orderType === 'delivery') {
-        // Solo pedidos de delivery (sin tableId)
-        shouldInclude = normalizedOrder.tableId == null;
       } else {
         shouldInclude = false;
       }
 
       console.log('🆕 ActiveOrders: ¿Debe incluirse?', shouldInclude, {
-        isDeliveryPerson,
         orderType,
         tableId: normalizedOrder.tableId,
         isSalon: normalizedOrder.tableId != null,
@@ -194,47 +187,30 @@ export default function ActiveOrdersPage() {
     } else {
       console.log('ℹ️ ActiveOrders: Pedido no es activo, ignorando. Status:', orderStatus);
     }
-  }, [showToast, playSound, orderType, isDeliveryPerson]);
+  }, [showToast, playSound, orderType]);
 
   // Función helper para filtrar pedidos según el tipo
   const filterOrdersByType = useCallback((ordersArray: Order[]): Order[] => {
-    // Si es repartidor, solo mostrar sus pedidos asignados (ya filtrados por el backend)
-    if (isDeliveryPerson) {
-      return ordersArray.filter((o: Order) => o.tableId == null && o.deliveryPersonId != null);
-    }
-    
     if (orderType === 'salon') {
       // Solo pedidos de salón (con TableId)
       return ordersArray.filter((o: Order) => o.tableId != null);
-    } else if (orderType === 'delivery') {
-      // Solo pedidos de delivery (sin TableId)
-      return ordersArray.filter((o: Order) => o.tableId == null);
     }
     // Todos los pedidos
     return ordersArray;
-  }, [orderType, isDeliveryPerson]);
+  }, [orderType]);
 
   const loadData = useCallback(async () => {
     try {
       console.log('📥 ActiveOrders: Iniciando carga de datos...', {
         orderType,
-        isDeliveryPerson,
-        hasDeliveryToken,
-        hasAdminToken,
         pathname: location.pathname
       });
       setLoading(true);
       
-      // Si es repartidor, cargar solo sus pedidos asignados
-      let ordersResponse: Order[];
-      if (isDeliveryPerson) {
-        ordersResponse = await api.getDeliveryPersonOrders();
-      } else {
-        ordersResponse = await api.getActiveOrders();
-      }
+      const ordersResponse = await api.getActiveOrders();
       
       const [deliveryData] = await Promise.all([
-        isDeliveryPerson ? Promise.resolve([]) : api.getActiveDeliveryPersons(),
+        api.getActiveDeliveryPersons(),
       ]);
       // El backend devuelve una respuesta paginada con propiedad 'data'
       const ordersArray = Array.isArray(ordersResponse)
@@ -316,7 +292,7 @@ export default function ActiveOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterOrdersByType, showToast, orderType, isDeliveryPerson, location.pathname]);
+  }, [filterOrdersByType, showToast, orderType, location.pathname]);
 
   const handleOrderUpdated = useCallback((order: Order) => {
     console.log('🔄 ActiveOrders: handleOrderUpdated llamado con:', {
@@ -358,8 +334,8 @@ export default function ActiveOrdersPage() {
     // para un pedido con tableId, SIEMPRE forzar recarga para asegurar que la vista esté actualizada
     // Esto es especialmente importante cuando se transfieren pedidos entre mesas
     // (El pedido puede ya tener el nuevo tableId en el estado si se actualizó antes de que llegara la notificación)
-    // Si es repartidor, no procesar pedidos de salón
-    if (!isDeliveryPerson && orderType === 'salon' && order.tableId != null && ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
+    // Procesar pedidos de salón
+    if (orderType === 'salon' && order.tableId != null && ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
       console.log('🔄 ActiveOrders: ⚠️ Notificación de OrderUpdated recibida para pedido de salón. Forzando recarga para asegurar consistencia...', {
         orderId: order.id,
         tableId: order.tableId,
@@ -399,11 +375,8 @@ export default function ActiveOrdersPage() {
     // FORZAR RECARGA para asegurar que la vista se actualice correctamente
     if (!existingOrder && order.tableId != null && ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
       // Verificar si el pedido debería estar en esta vista
-      const shouldBeInView = isDeliveryPerson 
-        ? (order.tableId == null && order.deliveryPersonId != null)
-        : (orderType === 'all' || 
-           (orderType === 'salon' && order.tableId != null) ||
-           (orderType === 'delivery' && order.tableId == null));
+      const shouldBeInView = orderType === 'all' || 
+        (orderType === 'salon' && order.tableId != null);
       
       if (shouldBeInView) {
         console.log('🔄 ActiveOrders: Pedido transferido detectado (no estaba en estado pero debería estar). Forzando recarga...', {
@@ -439,17 +412,12 @@ export default function ActiveOrdersPage() {
     if (ACTIVE_STATUSES.includes(order.status as OrderStatus)) {
       // Verificar si el pedido corresponde al tipo actual
       let shouldInclude: boolean;
-      if (isDeliveryPerson) {
-        shouldInclude = order.tableId == null && order.deliveryPersonId != null;
-      } else if (orderType === 'all') {
+      if (orderType === 'all') {
         // En "Activos" mostrar TODOS los pedidos (tanto de salón como de delivery)
         shouldInclude = true;
       } else if (orderType === 'salon') {
         // Solo pedidos de salón (con tableId)
         shouldInclude = order.tableId != null;
-      } else if (orderType === 'delivery') {
-        // Solo pedidos de delivery (sin tableId)
-        shouldInclude = order.tableId == null;
       } else {
         shouldInclude = false;
       }
@@ -508,7 +476,7 @@ export default function ActiveOrdersPage() {
       console.log('❌ ActiveOrders: Pedido', order.id, 'ya no es activo, removiendo');
       setOrders(prev => prev.filter(o => o.id !== order.id));
     }
-  }, [orderType, loadData, isDeliveryPerson]);
+  }, [orderType, loadData]);
 
   const handleOrderStatusChanged = useCallback((event: { orderId: number; status: string }) => {
     if (ACTIVE_STATUSES.includes(event.status as OrderStatus)) {
@@ -518,17 +486,12 @@ export default function ActiveOrdersPage() {
         
         // Verificar si el pedido actualizado corresponde al tipo actual
         let shouldInclude: boolean;
-        if (isDeliveryPerson) {
-          shouldInclude = order.tableId == null && order.deliveryPersonId != null;
-        } else if (orderType === 'all') {
+        if (orderType === 'all') {
           // En "Activos" mostrar TODOS los pedidos (tanto de salón como de delivery)
           shouldInclude = true;
         } else if (orderType === 'salon') {
           // Solo pedidos de salón (con tableId)
           shouldInclude = order.tableId != null;
-        } else if (orderType === 'delivery') {
-          // Solo pedidos de delivery (sin tableId)
-          shouldInclude = order.tableId == null;
         } else {
           shouldInclude = false;
         }
@@ -547,7 +510,7 @@ export default function ActiveOrdersPage() {
       setOrders(prev => prev.filter(o => o.id !== event.orderId));
       showToast(`Pedido #${event.orderId} ${event.status === 'completed' ? 'completado' : 'actualizado'} `, 'info');
     }
-  }, [showToast, orderType, isDeliveryPerson]);
+  }, [showToast, orderType]);
 
   const handleOrderDeleted = useCallback((event: { orderId: number }) => {
     setOrders(prev => prev.filter(o => o.id !== event.orderId));
@@ -802,7 +765,7 @@ export default function ActiveOrdersPage() {
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-xl font-bold text-gray-800">
-                {isDeliveryPerson ? '🚚 Mis Pedidos Asignados' : '📋 Pedidos Activos'}
+                📋 Pedidos Activos
               </h1>
               <p className="text-sm text-gray-500">
                 {safeOrders.length} pedido{safeOrders.length !== 1 ? 's' : ''} en proceso
@@ -852,9 +815,7 @@ export default function ActiveOrdersPage() {
             <CheckCircle size={64} className="mx-auto mb-4 text-green-400" />
             <h2 className="text-xl font-bold text-gray-800 mb-2">¡Todo al día!</h2>
             <p className="text-gray-500">
-              {isDeliveryPerson 
-                ? 'No tienes pedidos asignados en este momento' 
-                : 'No hay pedidos activos en este momento'}
+              No hay pedidos activos en este momento
             </p>
           </div>
         ) : viewMode === 'cards' ? (
@@ -1624,7 +1585,7 @@ function OrderCard({
               ) : order.deliveryPersonId ? (
                 /* Si ya tiene repartidor asignado, permitir enviar directamente */
                 <button
-                  onClick={() => onStatusChange(order, 'delivering', order.deliveryPersonId)}
+                  onClick={() => onStatusChange(order, 'delivering')}
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm font-medium"
                   title="Enviar pedido al repartidor asignado"
                 >
@@ -1751,7 +1712,7 @@ function TableActions({
             </button>
           ) : order.deliveryPersonId ? (
             /* Si ya tiene repartidor asignado, permitir enviar directamente */
-            <button onClick={() => onStatusChange(order, 'delivering', order.deliveryPersonId)} className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200" title="Enviar pedido al repartidor asignado">
+            <button onClick={() => onStatusChange(order, 'delivering')} className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200" title="Enviar pedido al repartidor asignado">
               <Truck size={16} />
             </button>
           ) : (

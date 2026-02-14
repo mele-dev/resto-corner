@@ -29,7 +29,6 @@ import TablesPage from './pages/Tables';
 import TablesViewPage from './pages/TablesView';
 import AdminUsersPage from './pages/AdminUsers';
 import DeliveryPersonsManagementPage from './pages/DeliveryPersonsManagement';
-import WaiterPage from './pages/WaiterPage';
 import SuperAdminPage from './pages/SuperAdmin';
 
 export default function App() {

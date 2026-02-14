@@ -31,8 +31,8 @@ export default function WaiterPage() {
   const [orderItems, setOrderItems] = useState<Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productQuantity, setProductQuantity] = useState(1);
-  const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
-  const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
+  // const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
+  // const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
   const [orderComments, setOrderComments] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
@@ -339,7 +339,7 @@ export default function WaiterPage() {
                 </div>
               ) : (
                 filteredTables.map((table) => {
-                  const statusInfo = getStatusInfo(table.status);
+                  // const statusInfo = getStatusInfo(table.status);
                   const isAvailable = table.status === 'Available' || table.status === 'Occupied' || table.status === 'OrderPlaced';
                   const getFixedPosition = (id: number, axis: 'x' | 'y') => {
                     const seed = id * (axis === 'x' ? 7919 : 7907);

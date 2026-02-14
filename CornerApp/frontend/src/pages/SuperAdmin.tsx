@@ -589,7 +589,7 @@ export default function SuperAdminPage() {
                 onClick={() => {
                   setIsEditModalOpen(false);
                   setSelectedRestaurant(null);
-                  setFormData({ name: '', identifier: '', address: '', phone: '', email: '' });
+                  setFormData({ name: '', identifier: '', address: '', phone: '', email: '', adminName: '', adminUsername: '', adminPassword: '', adminEmail: '' });
                 }}
                 className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >

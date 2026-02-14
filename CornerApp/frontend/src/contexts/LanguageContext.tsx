@@ -7,7 +7,7 @@ type Language = 'es' | 'en';
 interface LanguageContextType {
   language: Language;
   changeLanguage: (lang: Language) => void;
-  t: (key: string) => string;
+  t: (key: string, options?: Record<string, any>) => string;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);

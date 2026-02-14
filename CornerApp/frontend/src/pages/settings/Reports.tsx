@@ -584,7 +584,7 @@ export default function ReportsPage() {
     }
   };
 
-  const handlePOSVoid = async (order: any) => {
+  const _handlePOSVoid = async (order: any) => {
     if (!order.posTransactionId && !order.posTransactionIdString) {
       showToast('No hay información de transacción POS para este pedido', 'error');
       return;
