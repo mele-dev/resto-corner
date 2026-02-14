@@ -178,7 +178,7 @@ export default function ProductsPage() {
         await api.updateProduct(editingProduct.id, { ...productData, id: editingProduct.id });
         showToast('Producto actualizado correctamente', 'success');
       } else {
-        const newProduct = await api.createProduct(productData);
+        await api.createProduct(productData);
         showToast('Producto creado correctamente', 'success');
         // Resetear filtros para mostrar el nuevo producto
         setSearchTerm('');

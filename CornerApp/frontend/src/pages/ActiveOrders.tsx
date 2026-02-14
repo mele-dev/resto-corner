@@ -428,7 +428,7 @@ export default function ActiveOrdersPage() {
         orderType,
         orderTableId: order.tableId,
         isSalon: orderType === 'salon' && order.tableId != null,
-        isDelivery: orderType === 'delivery' && order.tableId == null
+        isDelivery: order.tableId == null
       });
       
       if (shouldInclude) {
@@ -550,9 +550,6 @@ export default function ActiveOrdersPage() {
             if (orderType === 'salon') {
               // Solo pedidos de salón (con tableId)
               filteredOrders = ordersArray.filter((o: Order) => o.tableId != null);
-            } else if (orderType === 'delivery') {
-              // Solo pedidos de delivery (sin tableId)
-              filteredOrders = ordersArray.filter((o: Order) => o.tableId == null);
             } else {
               // orderType === 'all' - Mostrar TODOS los pedidos (tanto de salón como de delivery)
               filteredOrders = ordersArray;

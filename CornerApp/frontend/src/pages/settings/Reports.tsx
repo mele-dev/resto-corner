@@ -584,7 +584,7 @@ export default function ReportsPage() {
     }
   };
 
-  const _handlePOSVoid = async (order: any) => {
+  /* const _handlePOSVoid = async (order: any) => {
     if (!order.posTransactionId && !order.posTransactionIdString) {
       showToast('No hay información de transacción POS para este pedido', 'error');
       return;
@@ -685,7 +685,7 @@ export default function ReportsPage() {
     } catch (error: any) {
       showToast(`Error al procesar devolución POS: ${error.message}`, 'error');
     }
-  };
+  }; */
 
   const handleExportExcel = async () => {
     try {

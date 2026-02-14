@@ -3,7 +3,7 @@ import { Table as TableIcon, Clock, ShoppingCart, X, Search, Grid, List, MapPin,
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
-import type { Table, Product, Category, SubProduct, TableStatus, Space } from '../types';
+import type { Table, Product, Category, TableStatus, Space } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
   { value: 'Available', label: 'Disponible', color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -31,8 +31,8 @@ export default function WaiterPage() {
   const [orderItems, setOrderItems] = useState<Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productQuantity, setProductQuantity] = useState(1);
-  // const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
-  // const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
+  const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
+  const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
   const [orderComments, setOrderComments] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 

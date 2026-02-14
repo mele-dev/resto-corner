@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart } from 'lucide-react';
+import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart, Phone } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
