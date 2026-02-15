@@ -17,7 +17,7 @@ export default function SettingsDeliveryZonesPage() {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [zoneConfig, setZoneConfig] = useState<DeliveryZoneConfig | null>(null);
+  const [_zoneConfig, setZoneConfig] = useState<DeliveryZoneConfig | null>(null);
   const [formData, setFormData] = useState<UpdateDeliveryZoneRequest>({});
 
   useEffect(() => {

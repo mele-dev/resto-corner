@@ -43,7 +43,7 @@ export default function ProductsPage() {
   });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [_isUploadingImage, setIsUploadingImage] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   
   // SubProduct form state
