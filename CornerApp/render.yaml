@@ -1,0 +1,98 @@
+# Render Blueprint - CornerApp
+# Este archivo define todos los servicios que Render creará automáticamente
+# 
+# Uso:
+# 1. Sube este archivo a tu repositorio Git
+# 2. En Render Dashboard → New → Blueprint
+# 3. Conecta tu repositorio
+# 4. Render creará todos los servicios automáticamente
+
+services:
+  # Backend API (.NET 8)
+  - type: web
+    name: cornerapp-backend
+    env: docker
+    dockerfilePath: ./backend-csharp/CornerApp.API/Dockerfile
+    dockerContext: ./backend-csharp
+    plan: starter  # Puedes cambiar a "standard" o "pro" para producción
+    region: oregon  # oregon, frankfurt, singapore, etc.
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:${PORT}
+      # Connection string se obtiene automáticamente de la base de datos
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: cornerapp-mysql
+          property: connectionString
+      # Redis connection string se obtiene automáticamente
+      - key: ConnectionStrings__Redis
+        fromService:
+          type: redis
+          name: cornerapp-redis
+          property: connectionString
+      - key: Redis__InstanceName
+        value: CornerApp:
+      - key: Redis__Enabled
+        value: "true"
+      # RabbitMQ - deshabilitado por defecto (Render no ofrece RabbitMQ gestionado)
+      # Si necesitas RabbitMQ, descomenta y crea un servicio web adicional
+      - key: RabbitMQ__Enabled
+        value: "false"
+      # JWT - IMPORTANTE: Cambia esto por una clave segura
+      - key: JWT_SECRET_KEY
+        generateValue: true  # Render generará una clave aleatoria
+      - key: JWT_ISSUER
+        value: CornerApp
+      - key: JWT_AUDIENCE
+        value: CornerApp
+      # CORS - Actualiza con la URL real de tu frontend
+      - key: Cors__AllowedOrigins__0
+        sync: false  # Debes actualizarlo manualmente después del despliegue
+        value: https://cornerapp-frontend.onrender.com
+      - key: EnableSwagger
+        value: "false"
+
+  # Frontend (React + Nginx)
+  - type: web
+    name: cornerapp-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: starter
+    region: oregon
+    healthCheckPath: /nginx-health
+    envVars:
+      # URL del backend - Render la actualizará automáticamente
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: cornerapp-backend
+          property: host
+          # Formato: https://cornerapp-backend.onrender.com
+        # Si lo anterior no funciona, usa esto:
+        # value: https://cornerapp-backend.onrender.com
+
+# Bases de datos gestionadas
+databases:
+  # MySQL Database
+  - name: cornerapp-mysql
+    databaseName: CornerAppDb
+    user: cornerapp_user
+    plan: starter  # starter ($7/mes), standard ($80/mes), pro ($290/mes)
+    region: oregon
+
+  # Redis Cache
+  - name: cornerapp-redis
+    plan: starter  # starter ($7/mes), standard ($80/mes)
+    region: oregon
+    maxmemoryPolicy: allkeys-lru
+
+# Notas importantes:
+# 1. Después del despliegue, actualiza CORS__AllowedOrigins__0 con la URL real del frontend
+# 2. Si necesitas RabbitMQ, crea un servicio web adicional con la imagen rabbitmq:3-management-alpine
+# 3. Los planes "starter" son gratuitos pero los servicios se duermen después de 15 min de inactividad
+# 4. Para producción, considera planes pagos (standard o pro)
+# 5. Las variables de entorno con "fromDatabase" y "fromService" se actualizan automáticamente

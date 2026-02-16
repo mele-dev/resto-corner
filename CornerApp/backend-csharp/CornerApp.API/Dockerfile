@@ -41,7 +41,10 @@ EXPOSE 8080
 EXPOSE 8081
 
 # Variables de entorno por defecto
-ENV ASPNETCORE_URLS=http://+:8080
+# Render inyecta PORT automáticamente - ASP.NET Core lo leerá automáticamente
+# Si PORT no está disponible, ASP.NET Core usará el puerto por defecto (5000)
+# Para forzar un puerto específico cuando PORT no esté disponible, puedes usar:
+# ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Health check
