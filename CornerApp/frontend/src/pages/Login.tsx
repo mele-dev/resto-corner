@@ -43,19 +43,40 @@ export default function LoginPage() {
       setLoading(true);
       const restaurantIdNum = restaurantId ? parseInt(restaurantId, 10) : null;
       await login(restaurantIdNum, username, password);
-      showToast(t('login.welcome'), 'success');
-      // Verificar si es superadmin para redirigir correctamente
+      
+      // Verificar el rol del usuario después del login
       const savedUser = localStorage.getItem('admin_user');
       if (savedUser) {
         const userData = JSON.parse(savedUser);
-        if (userData.role === 'SuperAdmin') {
-          navigate('/superadmin');
-        } else {
-          navigate('/admin');
+        
+        // Si el usuario es Employee (Mozo), rechazar el login y redirigir
+        if (userData.role === 'Employee') {
+          // Limpiar tokens de admin
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_user');
+          showToast('Los mozos deben iniciar sesión desde la sección de mozos', 'error');
+          navigate('/mozo/login');
+          return;
         }
-      } else {
-        navigate('/admin');
+        
+        // Si es SuperAdmin, redirigir a superadmin
+        if (userData.role === 'SuperAdmin') {
+          showToast(t('login.welcome'), 'success');
+          navigate('/superadmin');
+          return;
+        }
+        
+        // Si es Admin, redirigir a admin
+        if (userData.role === 'Admin') {
+          showToast(t('login.welcome'), 'success');
+          navigate('/admin');
+          return;
+        }
       }
+      
+      // Si no se pudo determinar el rol, redirigir a admin por defecto
+      showToast(t('login.welcome'), 'success');
+      navigate('/admin');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t('login.error');
       showToast(errorMessage, 'error');

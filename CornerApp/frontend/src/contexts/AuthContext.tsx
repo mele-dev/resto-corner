@@ -100,12 +100,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json();
       
+      // Verificar que el usuario no sea Employee (Mozo)
+      if (data.user?.role === 'Employee') {
+        throw new Error('Los mozos deben iniciar sesión desde la sección de mozos');
+      }
+      
       setToken(data.token);
       setUser(data.user);
       
-      // Guardar en localStorage
+      // Guardar en localStorage y limpiar tokens de mozo si existen
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('admin_user', JSON.stringify(data.user));
+      localStorage.removeItem('waiter_token');
+      localStorage.removeItem('waiter_user');
+      
+      // Disparar evento para actualizar otros componentes
+      window.dispatchEvent(new Event('auth-changed'));
     } catch (error) {
       throw error;
     }

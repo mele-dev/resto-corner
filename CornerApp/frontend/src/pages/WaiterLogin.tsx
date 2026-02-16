@@ -88,6 +88,10 @@ export default function WaiterLoginPage() {
         throw new Error('Este usuario no tiene permisos de mozo');
       }
       
+      // Limpiar tokens de admin si existen (para evitar conflictos)
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('admin_user');
+      
       // Guardar token y datos del mozo
       localStorage.setItem('waiter_token', data.token);
       localStorage.setItem('waiter_user', JSON.stringify(data.user));
