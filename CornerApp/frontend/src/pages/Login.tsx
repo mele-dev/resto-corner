@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast/ToastContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown } from 'lucide-react';
+import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown, Utensils } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import Logo from '../components/Logo/Logo';
 
 export default function LoginPage() {
@@ -237,6 +238,28 @@ export default function LoginPage() {
               <Crown size={18} />
               <span>{t('login.superAdminLogin')}</span>
             </button>
+          </div>
+
+          {/* Link a Login de Mozo */}
+          <div className="mt-4">
+            <Link
+              to="/mozo/login"
+              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Utensils size={18} />
+              <span>Acceso Mozos</span>
+            </Link>
+          </div>
+
+          {/* Link a Login de Clientes */}
+          <div className="mt-4">
+            <Link
+              to="/clientes/login"
+              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-xl hover:from-blue-600 hover:to-cyan-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <ShoppingBag size={18} />
+              <span>Acceso Clientes</span>
+            </Link>
           </div>
 
           {/* Footer */}

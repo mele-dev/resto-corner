@@ -21,9 +21,30 @@ const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColo
 export default function TablesViewPage() {
   const { user } = useAuth();
   
+  // También verificar directamente en localStorage por si useAuth no se ha actualizado aún
+  const waiterUser = localStorage.getItem('waiter_user');
+  const waiterToken = localStorage.getItem('waiter_token');
+  const adminUser = localStorage.getItem('admin_user');
+  const adminToken = localStorage.getItem('admin_token');
+  
+  // Si hay token de mozo pero no hay usuario en useAuth, intentar parsear directamente
+  let currentUser = user;
+  if (!currentUser && waiterToken && waiterUser) {
+    try {
+      currentUser = JSON.parse(waiterUser);
+    } catch (e) {
+      console.error('Error al parsear usuario de mozo:', e);
+    }
+  }
+  
   // Verificar que el usuario tenga rol Admin o Employee
-  if (!user || (user.role !== 'Admin' && user.role !== 'Employee')) {
-    return <Navigate to="/admin" replace />;
+  if (!currentUser || (currentUser.role !== 'Admin' && currentUser.role !== 'Employee')) {
+    // Si hay token de mozo pero el usuario no es válido, redirigir al login de mozo
+    if (waiterToken || waiterUser) {
+      return <Navigate to="/mozo/login" replace />;
+    }
+    // Si no hay ningún token, redirigir al login de admin
+    return <Navigate to="/login" replace />;
   }
   
   const [tables, setTables] = useState<Table[]>([]);

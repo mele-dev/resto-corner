@@ -30,22 +30,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Cargar token y usuario del localStorage al iniciar
     // Buscar primero admin_token, luego waiter_token
-    const savedToken = localStorage.getItem('admin_token') || localStorage.getItem('waiter_token');
-    const savedUser = localStorage.getItem('admin_user') || localStorage.getItem('waiter_user');
-    
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error('Error al parsear usuario guardado:', e);
-        localStorage.removeItem('admin_token');
-        localStorage.removeItem('admin_user');
-        localStorage.removeItem('waiter_token');
-        localStorage.removeItem('waiter_user');
+    const loadAuth = () => {
+      const savedToken = localStorage.getItem('admin_token') || localStorage.getItem('waiter_token');
+      const savedUser = localStorage.getItem('admin_user') || localStorage.getItem('waiter_user');
+      
+      if (savedToken && savedUser) {
+        setToken(savedToken);
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch (e) {
+          console.error('Error al parsear usuario guardado:', e);
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_user');
+          localStorage.removeItem('waiter_token');
+          localStorage.removeItem('waiter_user');
+          setToken(null);
+          setUser(null);
+        }
+      } else {
+        setToken(null);
+        setUser(null);
       }
-    }
+    };
+
+    loadAuth();
     setLoading(false);
+
+    // Escuchar cambios en localStorage (entre pestañas)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'admin_token' || e.key === 'waiter_token' || 
+          e.key === 'admin_user' || e.key === 'waiter_user') {
+        loadAuth();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Escuchar eventos personalizados para cambios en la misma pestaña
+    const handleAuthChange = () => {
+      loadAuth();
+    };
+
+    window.addEventListener('auth-changed', handleAuthChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth-changed', handleAuthChange);
+    };
   }, []);
 
   const login = async (restaurantId: number | null, username: string, password: string) => {
