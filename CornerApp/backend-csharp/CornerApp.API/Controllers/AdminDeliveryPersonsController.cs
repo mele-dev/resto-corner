@@ -376,7 +376,15 @@ public class AdminDeliveryPersonsController : ControllerBase
 
         var completedOrders = orders.Where(o => 
             o.Status == OrderConstants.STATUS_COMPLETED
-        ).Count();
+        ).ToList();
+
+        // Calcular total en efectivo de pedidos completados
+        var totalCash = completedOrders
+            .Where(o => o.PaymentMethod?.ToLower() == PaymentConstants.METHOD_CASH.ToLower())
+            .Sum(o => o.Total);
+
+        // Calcular monto esperado (inicial + efectivo recibido)
+        var expectedAmount = openCashRegister.InitialAmount + totalCash;
 
         return Ok(new
         {
@@ -389,8 +397,10 @@ public class AdminDeliveryPersonsController : ControllerBase
                 openedAt = openCashRegister.OpenedAt,
                 initialAmount = openCashRegister.InitialAmount,
                 activeOrders = activeOrders,
-                completedOrders = completedOrders,
-                totalOrders = orders.Count
+                completedOrders = completedOrders.Count,
+                totalOrders = orders.Count,
+                totalCash = totalCash,
+                expectedAmount = expectedAmount
             }
         });
     }
@@ -628,9 +638,14 @@ public class AdminDeliveryPersonsController : ControllerBase
                        o.RestaurantId == restaurantId &&
                        !o.IsArchived);
 
+        // Si hay una caja abierta, filtrar por fecha de apertura de la caja
+        if (openCashRegister != null)
+        {
+            query = query.Where(o => o.CreatedAt >= openCashRegister.OpenedAt);
+        }
+
         // Si includeCompleted es false, solo mostrar activos (no completados ni cancelados)
         // Si includeCompleted es true, mostrar todos (incluyendo completados y cancelados)
-        // NOTA: Removimos el filtro por fecha de caja abierta para mostrar todos los pedidos asignados
         if (!includeCompleted)
         {
             query = query.Where(o => 
