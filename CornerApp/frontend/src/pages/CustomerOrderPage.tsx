@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Minus, Trash2, MapPin, Phone, User, CreditCard, LogOut, Package, Truck, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, MapPin, Phone, User, CreditCard, LogOut, Package, Truck, AlertCircle, Clock, ChevronDown, ChevronUp, MessageCircle, Store, UserPlus } from 'lucide-react';
 import { useToast } from '../components/Toast/ToastContext';
-import type { Product, Category, PaymentMethod, CreateOrderRequest } from '../types';
+import { api } from '../api/client';
+import Modal from '../components/Modal/Modal';
+import type { Product, Category, PaymentMethod, CreateOrderRequest, Order } from '../types';
 
 interface CartItem {
   id: number;
@@ -27,6 +29,7 @@ export default function CustomerOrderPage() {
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerPoints, setCustomerPoints] = useState<number>(0);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('cash');
   const [comments, setComments] = useState('');
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
@@ -35,6 +38,12 @@ export default function CustomerOrderPage() {
   const [availableDeliveryPersons, setAvailableDeliveryPersons] = useState<Array<{ id: number; name: string; phone?: string }>>([]);
   const [selectedDeliveryPersonId, setSelectedDeliveryPersonId] = useState<number | null>(null);
   const [businessStatus, setBusinessStatus] = useState<{ isOpen: boolean; isWithinHours: boolean; message: string } | null>(null);
+  const [deliveringOrders, setDeliveringOrders] = useState<Order[]>([]);
+  const [isOrdersSectionOpen, setIsOrdersSectionOpen] = useState(false);
+  const [isRestaurantsModalOpen, setIsRestaurantsModalOpen] = useState(false);
+  const [availableRestaurants, setAvailableRestaurants] = useState<Array<{ id: number; name: string; address?: string; phone?: string }>>([]);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(false);
+  const [currentRestaurantId, setCurrentRestaurantId] = useState<number | null>(null);
 
   useEffect(() => {
     // Verificar si el usuario está logueado
@@ -52,9 +61,11 @@ export default function CustomerOrderPage() {
       setCustomerName(userData.name || '');
       setCustomerAddress(userData.defaultAddress || '');
       setCustomerPhone(userData.phone || '');
+      setCustomerPoints(userData.points || 0);
       
       // Cargar nombre del restaurante
       if (userData.restaurantId) {
+        setCurrentRestaurantId(userData.restaurantId);
         loadRestaurantName(userData.restaurantId);
       }
     } catch (error) {
@@ -64,6 +75,21 @@ export default function CustomerOrderPage() {
     loadData();
     loadBusinessStatus();
     loadAvailableDeliveryPersons();
+    
+    // Cargar pedidos en camino después de un pequeño delay para asegurar que el token esté disponible
+    const loadOrdersTimeout = setTimeout(() => {
+      loadDeliveringOrders();
+    }, 1000);
+    
+    // Polling cada 15 segundos para actualizar pedidos en camino
+    const interval = setInterval(() => {
+      loadDeliveringOrders();
+    }, 15000);
+    
+    return () => {
+      clearTimeout(loadOrdersTimeout);
+      clearInterval(interval);
+    };
   }, [navigate]);
 
   const loadRestaurantName = async (id: number) => {
@@ -75,6 +101,114 @@ export default function CustomerOrderPage() {
       }
     } catch (error) {
       console.error('Error loading restaurant name:', error);
+    }
+  };
+
+  const openWhatsApp = (order: Order) => {
+    if (!order.deliveryPerson?.phone) {
+      showToast('El repartidor no tiene número de teléfono registrado', 'error');
+      return;
+    }
+
+    // Limpiar el número de teléfono (remover espacios, guiones, paréntesis, etc.)
+    const cleanPhone = order.deliveryPerson.phone.replace(/[\s\-\(\)]/g, '');
+    
+    // Asegurar que tenga el código de país (si no lo tiene, asumir Uruguay +598)
+    let phoneNumber = cleanPhone;
+    if (!phoneNumber.startsWith('+')) {
+      // Si no empieza con +, agregar código de Uruguay
+      if (phoneNumber.startsWith('598')) {
+        phoneNumber = '+' + phoneNumber;
+      } else if (phoneNumber.startsWith('0')) {
+        // Si empieza con 0, reemplazar por +598
+        phoneNumber = '+598' + phoneNumber.substring(1);
+      } else {
+        // Si no tiene código, agregar +598
+        phoneNumber = '+598' + phoneNumber;
+      }
+    }
+
+    // Crear mensaje personalizado
+    const message = `Hola ${order.deliveryPerson.name}! 👋\n\n` +
+      `Te escribo sobre mi pedido #${order.orderNumber || order.id}.\n\n` +
+      `¿Podrías darme una actualización sobre el estado de mi pedido?\n\n` +
+      `Gracias! 😊`;
+
+    // Codificar el mensaje para URL
+    const encodedMessage = encodeURIComponent(message);
+    
+    // Crear enlace de WhatsApp
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+    
+    // Abrir WhatsApp en nueva pestaña
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const loadDeliveringOrders = async () => {
+    try {
+      const token = localStorage.getItem('customer_token');
+      if (!token) {
+        console.log('No hay token de cliente, no se pueden cargar pedidos');
+        return;
+      }
+
+      console.log('Cargando pedidos del cliente...');
+      const response = await api.getMyOrders({ page: 1, pageSize: 50 });
+      
+      console.log('Respuesta de getMyOrders:', response);
+      
+      // El backend puede devolver response.data o response directamente
+      const ordersArray = response?.data || response || [];
+      
+      console.log('Pedidos obtenidos:', ordersArray.length);
+      
+      if (Array.isArray(ordersArray) && ordersArray.length > 0) {
+        const now = new Date().getTime();
+        const fiveMinutesInMs = 5 * 60 * 1000; // 5 minutos en milisegundos
+        
+        // Filtrar pedidos en estado "delivering" que tengan menos de 5 minutos desde updatedAt
+        const delivering = ordersArray.filter(order => {
+          if (order.status !== 'delivering') {
+            console.log(`Pedido ${order.id} no está en delivering, status: ${order.status}`);
+            return false;
+          }
+          
+          const updatedAt = new Date(order.updatedAt).getTime();
+          const timeSinceUpdate = now - updatedAt;
+          
+          console.log(`Pedido ${order.id} en delivering, tiempo desde update: ${Math.floor(timeSinceUpdate / 60000)} minutos`);
+          
+          // Si el tiempo es negativo (problema de zona horaria), considerar que es reciente (0 minutos)
+          // Solo mostrar si tiene menos de 5 minutos desde que se puso en delivering
+          const shouldShow = timeSinceUpdate < fiveMinutesInMs || timeSinceUpdate < 0;
+          if (!shouldShow) {
+            console.log(`Pedido ${order.id} tiene más de 5 minutos, no se mostrará`);
+          }
+          return shouldShow;
+        });
+        
+        console.log('Pedidos en camino encontrados:', delivering.length);
+        // Debug: verificar información del repartidor
+        delivering.forEach(order => {
+          if (order.deliveryPerson) {
+            console.log(`Pedido ${order.id} - Repartidor:`, {
+              name: order.deliveryPerson.name,
+              phone: order.deliveryPerson.phone,
+              hasPhone: !!order.deliveryPerson.phone
+            });
+          } else {
+            console.log(`Pedido ${order.id} - No tiene repartidor asignado`);
+          }
+        });
+        setDeliveringOrders(delivering);
+      } else {
+        console.log('No hay pedidos o la respuesta está vacía');
+        setDeliveringOrders([]);
+      }
+    } catch (error) {
+      console.error('Error loading delivering orders:', error);
+      // No mostrar error al usuario, solo loguear
+      setDeliveringOrders([]);
     }
   };
 
@@ -310,6 +444,39 @@ export default function CustomerOrderPage() {
     navigate('/clientes/login');
   };
 
+  const openRestaurantsModal = async () => {
+    setIsRestaurantsModalOpen(true);
+    await loadAvailableRestaurants();
+  };
+
+  const loadAvailableRestaurants = async () => {
+    try {
+      setLoadingRestaurants(true);
+      const response = await fetch('/api/restaurants');
+      
+      if (!response.ok) {
+        throw new Error('Error al cargar restaurantes');
+      }
+
+      const data = await response.json();
+      // Filtrar el restaurante actual
+      const filtered = data.filter((r: { id: number }) => r.id !== currentRestaurantId);
+      setAvailableRestaurants(filtered);
+    } catch (error) {
+      showToast('Error al cargar restaurantes', 'error');
+      console.error(error);
+    } finally {
+      setLoadingRestaurants(false);
+    }
+  };
+
+  const handleRegisterToRestaurant = (restaurantId: number) => {
+    // Redirigir a la página de registro con el restaurante pre-seleccionado
+    navigate(`/clientes/registro?restaurantId=${restaurantId}`);
+  };
+
+  const [showRecommendedOnly, setShowRecommendedOnly] = useState(false);
+
   const filteredProducts = selectedCategoryId
     ? products.filter(p => p.categoryId === selectedCategoryId)
     : products;
@@ -317,6 +484,11 @@ export default function CustomerOrderPage() {
   // Separar productos recomendados
   const recommendedProducts = products.filter(p => p.isRecommended && p.isAvailable);
   const regularProducts = filteredProducts.filter(p => !p.isRecommended || !p.isAvailable);
+  
+  // Si solo se muestran recomendados, filtrar productos
+  const displayProducts = showRecommendedOnly 
+    ? recommendedProducts.filter(p => !selectedCategoryId || p.categoryId === selectedCategoryId)
+    : regularProducts;
 
   if (loading) {
     return (
@@ -327,72 +499,173 @@ export default function CustomerOrderPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       {/* Header */}
       <div className="bg-white shadow-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <ShoppingCart size={28} className="text-primary-500" />
-              Realizar Pedido
+        <div className="max-w-7xl mx-auto px-4 py-4 w-full overflow-x-hidden">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <ShoppingCart size={24} className="text-primary-500 sm:w-7 sm:h-7" />
+              <span className="whitespace-nowrap">Realizar Pedido</span>
             </h1>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-            >
-              <LogOut size={20} />
-              Salir
-            </button>
-          </div>
-          {restaurantName && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <Package size={16} className="text-primary-500" />
-              <span className="font-semibold">Restaurante:</span>
-              <span className="text-primary-600 font-bold">{restaurantName}</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={openRestaurantsModal}
+                className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm sm:text-base whitespace-nowrap"
+                title="Ver otros restaurantes"
+              >
+                <Store size={18} className="sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Restaurantes</span>
+                <span className="sm:hidden">Rest.</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors text-sm sm:text-base whitespace-nowrap"
+              >
+                <LogOut size={18} className="sm:w-5 sm:h-5" />
+                <span>Salir</span>
+              </button>
             </div>
-          )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm">
+            {restaurantName && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <Package size={14} className="text-primary-500 sm:w-4 sm:h-4" />
+                <span className="font-semibold">Restaurante:</span>
+                <span className="text-primary-600 font-bold">{restaurantName}</span>
+              </div>
+            )}
+            {customerPoints !== undefined && customerPoints !== null && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-300">
+                <span className="text-lg sm:text-xl font-bold">⭐</span>
+                <span className="font-bold">{customerPoints}</span>
+                <span className="hidden sm:inline">puntos</span>
+                <span className="sm:hidden">pts</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Sección Mis Pedidos - Solo pedidos en camino (Desplegable) */}
+      {deliveringOrders.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 py-4 w-full">
+          <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg shadow-lg border-2 border-purple-300 overflow-hidden w-full">
+            {/* Botón para expandir/colapsar */}
+            <button
+              onClick={() => setIsOrdersSectionOpen(!isOrdersSectionOpen)}
+              className="w-full flex items-center justify-between p-3 sm:p-4 hover:bg-purple-100 transition-colors"
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Truck size={20} className="text-purple-600 flex-shrink-0 sm:w-6 sm:h-6" />
+                <h2 className="text-base sm:text-xl font-bold text-gray-800 truncate">Mis Pedidos en Camino</h2>
+                <span className="px-2 py-1 bg-purple-200 text-purple-700 rounded-full text-xs sm:text-sm font-semibold flex-shrink-0">
+                  {deliveringOrders.length}
+                </span>
+              </div>
+              <div className="flex-shrink-0 ml-2">
+                {isOrdersSectionOpen ? (
+                  <ChevronUp size={20} className="text-purple-600 sm:w-6 sm:h-6" />
+                ) : (
+                  <ChevronDown size={20} className="text-purple-600 sm:w-6 sm:h-6" />
+                )}
+              </div>
+            </button>
+            
+            {/* Contenido desplegable */}
+            {isOrdersSectionOpen && (
+              <div className="px-3 sm:px-4 pb-4 w-full overflow-x-hidden">
+                <div className="space-y-3">
+                  {deliveringOrders.map(order => {
+                // Asegurar que la fecha se parsea correctamente
+                // updatedAt puede venir como string ISO desde el backend
+                const updatedAt = order.updatedAt ? new Date(order.updatedAt) : new Date();
+                
+                const now = new Date();
+                const diffMs = now.getTime() - updatedAt.getTime();
+                const minutesAgo = Math.floor(diffMs / 60000);
+                
+                // Si el tiempo es negativo (problema de zona horaria o fecha futura), 
+                // considerar que es reciente (0 minutos)
+                const validMinutesAgo = Math.max(0, minutesAgo);
+                const remainingMinutes = Math.max(0, 5 - validMinutesAgo);
+                
+                return (
+                  <div key={order.id} className="bg-white rounded-lg shadow-md p-3 sm:p-4 border-l-4 border-purple-500 w-full overflow-x-hidden">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex-1 min-w-0 w-full">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <Truck size={18} className="text-purple-600 flex-shrink-0 sm:w-5 sm:h-5" />
+                          <span className="font-bold text-gray-800 text-sm sm:text-base">
+                            Pedido #{order.orderNumber || order.id}
+                          </span>
+                          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold flex-shrink-0">
+                            En Camino
+                          </span>
+                        </div>
+                        <div className="text-xs sm:text-sm text-gray-600 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Clock size={12} className="sm:w-3.5 sm:h-3.5 flex-shrink-0" />
+                            <span>Hace {validMinutesAgo} minuto{validMinutesAgo !== 1 ? 's' : ''}</span>
+                            {remainingMinutes > 0 && (
+                              <span className="text-purple-600 font-semibold">
+                                • Se ocultará en {remainingMinutes} minuto{remainingMinutes !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                          {order.deliveryPerson && (
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <User size={12} className="sm:w-3.5 sm:h-3.5 flex-shrink-0" />
+                                <span className="break-words">Repartidor: {order.deliveryPerson.name}</span>
+                              </div>
+                              {order.deliveryPerson.phone && (
+                                <button
+                                  onClick={() => openWhatsApp(order)}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs sm:text-sm font-medium shadow-sm whitespace-nowrap w-full sm:w-auto justify-center"
+                                  title="Enviar mensaje por WhatsApp"
+                                >
+                                  <MessageCircle size={14} className="sm:w-4 sm:h-4" />
+                                  <span>WhatsApp</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-start gap-1">
+                            <MapPin size={12} className="sm:w-3.5 sm:h-3.5 flex-shrink-0 mt-0.5" />
+                            <span className="break-words">{order.customerAddress}</span>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            <span className="font-semibold text-gray-800">Total: ${order.total.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Productos */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Categorías */}
-            <div className="bg-white rounded-lg shadow-md p-4">
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                <button
-                  onClick={() => setSelectedCategoryId(null)}
-                  className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
-                    selectedCategoryId === null
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Todos
-                </button>
-                {categories.map(category => (
-                  <button
-                    key={category.id}
-                    onClick={() => setSelectedCategoryId(category.id)}
-                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
-                      selectedCategoryId === category.id
-                        ? 'bg-primary-500 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {category.icon} {category.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Productos Recomendados */}
-            {recommendedProducts.length > 0 && selectedCategoryId === null && (
+            {/* Productos Recomendados - Primero y siempre visible */}
+            {recommendedProducts.length > 0 && (
               <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg shadow-md p-4 border-2 border-yellow-300">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-2xl">⭐</span>
-                  <h2 className="text-xl font-bold text-gray-800">Recomendados</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">⭐</span>
+                    <h2 className="text-xl font-bold text-gray-800">Productos Recomendados</h2>
+                    <span className="px-2 py-1 bg-yellow-200 text-yellow-800 rounded-full text-xs font-semibold">
+                      {recommendedProducts.length}
+                    </span>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {recommendedProducts.map(product => (
@@ -438,14 +711,79 @@ export default function CustomerOrderPage() {
               </div>
             )}
 
+            {/* Categorías y Filtros */}
+            <div className="bg-white rounded-lg shadow-md p-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Productos</h2>
+                {recommendedProducts.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowRecommendedOnly(!showRecommendedOnly);
+                      setSelectedCategoryId(null);
+                    }}
+                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors text-sm font-medium ${
+                      showRecommendedOnly
+                        ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                        : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                    }`}
+                  >
+                    {showRecommendedOnly ? '⭐ Ver Todos' : '⭐ Solo Recomendados'}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                <button
+                  onClick={() => {
+                    setSelectedCategoryId(null);
+                    setShowRecommendedOnly(false);
+                  }}
+                  className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors text-sm ${
+                    selectedCategoryId === null && !showRecommendedOnly
+                      ? 'bg-primary-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Todos
+                </button>
+                {categories.map(category => (
+                  <button
+                    key={category.id}
+                    onClick={() => {
+                      setSelectedCategoryId(category.id);
+                      setShowRecommendedOnly(false);
+                    }}
+                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors text-sm ${
+                      selectedCategoryId === category.id
+                        ? 'bg-primary-500 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {category.icon} {category.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Lista de Productos */}
             <div className="bg-white rounded-lg shadow-md p-4">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">Productos</h2>
-              {regularProducts.length === 0 && recommendedProducts.length === 0 ? (
+              {displayProducts.length === 0 && recommendedProducts.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No hay productos disponibles</p>
+              ) : displayProducts.length === 0 && showRecommendedOnly ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-2">No hay productos recomendados en esta categoría</p>
+                  <button
+                    onClick={() => {
+                      setShowRecommendedOnly(false);
+                      setSelectedCategoryId(null);
+                    }}
+                    className="text-primary-500 hover:text-primary-600 font-medium"
+                  >
+                    Ver todos los productos
+                  </button>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {regularProducts.map(product => (
+                  {displayProducts.map(product => (
                     <div key={product.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-all">
                       {product.image && (
                         <div className="w-full h-48 overflow-hidden bg-gray-100">
@@ -746,6 +1084,67 @@ export default function CustomerOrderPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Restaurantes */}
+      <Modal
+        isOpen={isRestaurantsModalOpen}
+        onClose={() => setIsRestaurantsModalOpen(false)}
+        title="Otros Restaurantes"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-600 text-sm">
+            Selecciona un restaurante para registrarte y poder hacer pedidos desde allí.
+          </p>
+          
+          {loadingRestaurants ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : availableRestaurants.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Store size={48} className="mx-auto mb-4 text-gray-400" />
+              <p>No hay otros restaurantes disponibles</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {availableRestaurants.map((restaurant) => (
+                <div
+                  key={restaurant.id}
+                  className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                        <Store size={20} className="text-primary-500" />
+                        {restaurant.name}
+                      </h3>
+                      {restaurant.address && (
+                        <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
+                          <MapPin size={14} />
+                          {restaurant.address}
+                        </p>
+                      )}
+                      {restaurant.phone && (
+                        <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
+                          <Phone size={14} />
+                          {restaurant.phone}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRegisterToRestaurant(restaurant.id)}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
+                    >
+                      <UserPlus size={16} />
+                      Registrarse
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -608,15 +608,10 @@ public class AdminDeliveryPersonsController : ControllerBase
                        o.RestaurantId == restaurantId &&
                        !o.IsArchived);
 
-        // Si hay caja abierta, filtrar por pedidos de esa sesión
-        if (openCashRegister != null)
-        {
-            query = query.Where(o => o.CreatedAt >= openCashRegister.OpenedAt);
-        }
-
         // Si includeCompleted es false, solo mostrar activos (no completados ni cancelados)
         // Si includeCompleted es true, mostrar todos (incluyendo completados y cancelados)
-        if (!includeCompleted && openCashRegister == null)
+        // NOTA: Removimos el filtro por fecha de caja abierta para mostrar todos los pedidos asignados
+        if (!includeCompleted)
         {
             query = query.Where(o => 
                 o.Status != OrderConstants.STATUS_COMPLETED && 

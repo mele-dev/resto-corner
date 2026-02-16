@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useToast } from '../components/Toast/ToastContext';
 import { UserPlus, Lock, Mail, User, Phone, MapPin, Store } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
@@ -12,6 +12,7 @@ interface Restaurant {
 }
 
 export default function CustomerRegisterPage() {
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,8 +40,15 @@ export default function CustomerRegisterPage() {
         const data = await response.json();
         setRestaurants(data);
         
-        // Si solo hay un restaurante, seleccionarlo automáticamente
-        if (data.length === 1) {
+        // Si hay un restaurantId en la URL, usarlo
+        const urlRestaurantId = searchParams.get('restaurantId');
+        if (urlRestaurantId) {
+          const id = parseInt(urlRestaurantId);
+          if (!isNaN(id) && data.some((r: Restaurant) => r.id === id)) {
+            setRestaurantId(id);
+          }
+        } else if (data.length === 1) {
+          // Si solo hay un restaurante, seleccionarlo automáticamente
           setRestaurantId(data[0].id);
         }
       } catch (error) {
@@ -52,7 +60,7 @@ export default function CustomerRegisterPage() {
     };
 
     fetchRestaurants();
-  }, [showToast]);
+  }, [showToast, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1713,20 +1713,6 @@ export default function TablesPage() {
           </div>
 
           <div>
-            <label htmlFor="tableLocation" className="block text-sm font-medium text-gray-700 mb-1">
-              Ubicación
-            </label>
-            <input
-              type="text"
-              id="tableLocation"
-              value={formData.location}
-              onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
-              placeholder="Ej: Interior, Terraza, Ventana"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
-          </div>
-
-          <div>
             <label htmlFor="tableSpace" className="block text-sm font-medium text-gray-700 mb-1">
               Espacio
             </label>

@@ -1103,6 +1103,7 @@ public class OrdersController : ControllerBase
         // Filtrar por CustomerId Y RestaurantId para asegurar que no se mezclen datos entre restaurantes
         var query = _context.Orders
             .Include(o => o.Items)
+            .Include(o => o.DeliveryPerson) // Incluir información del repartidor para que el cliente pueda contactarlo
             .Where(o => o.CustomerId == userId && 
                        o.RestaurantId == restaurantId && 
                        !o.IsArchived)

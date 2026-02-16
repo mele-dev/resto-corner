@@ -1,13 +1,23 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from '../components/Toast/ToastContext';
-import { LogIn, Lock, Mail, ShoppingBag } from 'lucide-react';
+import { LogIn, Lock, Mail, ShoppingBag, Store, MapPin, Phone } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
+
+interface Restaurant {
+  id: number;
+  name: string;
+  address?: string;
+  phone?: string;
+}
 
 export default function CustomerLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showRestaurantSelection, setShowRestaurantSelection] = useState(false);
+  const [availableRestaurants, setAvailableRestaurants] = useState<Restaurant[]>([]);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState<number | null>(null);
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -22,12 +32,68 @@ export default function CustomerLoginPage() {
     try {
       setLoading(true);
       
+      const requestBody: { email: string; password: string; restaurantId?: number } = { 
+        email, 
+        password 
+      };
+      
+      // Si hay un restaurante seleccionado, incluirlo en la petición
+      if (selectedRestaurantId) {
+        requestBody.restaurantId = selectedRestaurantId;
+      }
+      
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error al iniciar sesión');
+      }
+
+      const data = await response.json();
+      
+      // Si requiere selección de restaurante
+      if (data.requiresRestaurantSelection && data.restaurants) {
+        setAvailableRestaurants(data.restaurants);
+        setShowRestaurantSelection(true);
+        setLoading(false);
+        return;
+      }
+      
+      // Guardar token y datos del cliente
+      localStorage.setItem('customer_token', data.token);
+      localStorage.setItem('customer_user', JSON.stringify(data.user));
+      
+      showToast('¡Bienvenido!', 'success');
+      navigate('/clientes/pedidos');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
+      showToast(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestaurantSelection = async (restaurantId: number) => {
+    try {
+      setLoading(true);
+      setSelectedRestaurantId(restaurantId);
+      
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          email, 
+          password,
+          restaurantId 
+        }),
       });
 
       if (!response.ok) {
@@ -102,8 +168,64 @@ export default function CustomerLoginPage() {
             <p className="text-center text-gray-600 text-sm">Acceso para clientes</p>
           </div>
 
+          {/* Selección de Restaurante */}
+          {showRestaurantSelection && (
+            <div className="mb-6 p-4 bg-white rounded-xl shadow-md border-2 border-primary-200">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                <Store size={20} className="text-primary-500" />
+                Selecciona un restaurante
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Tu email está registrado en múltiples restaurantes. Selecciona al que deseas acceder:
+              </p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {availableRestaurants.map((restaurant) => (
+                  <button
+                    key={restaurant.id}
+                    onClick={() => handleRestaurantSelection(restaurant.id)}
+                    disabled={loading}
+                    className="w-full text-left p-3 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all disabled:opacity-50"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-800 flex items-center gap-2">
+                          <Store size={16} className="text-primary-500" />
+                          {restaurant.name}
+                        </h4>
+                        {restaurant.address && (
+                          <p className="text-xs text-gray-600 mt-1 flex items-center gap-1">
+                            <MapPin size={12} />
+                            {restaurant.address}
+                          </p>
+                        )}
+                        {restaurant.phone && (
+                          <p className="text-xs text-gray-600 mt-1 flex items-center gap-1">
+                            <Phone size={12} />
+                            {restaurant.phone}
+                          </p>
+                        )}
+                      </div>
+                      <LogIn size={18} className="text-primary-500 ml-2" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setShowRestaurantSelection(false);
+                  setAvailableRestaurants([]);
+                  setSelectedRestaurantId(null);
+                }}
+                className="mt-4 text-sm text-gray-600 hover:text-gray-800"
+              >
+                Volver
+              </button>
+            </div>
+          )}
+
           {/* Formulario */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {!showRestaurantSelection && (
+            <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email */}
             <div>
               <label htmlFor="email" className="block text-sm font-semibold text-white mb-2">
@@ -167,6 +289,7 @@ export default function CustomerLoginPage() {
               )}
             </button>
           </form>
+          )}
 
           {/* Link a Registro */}
           <div className="mt-6 text-center">

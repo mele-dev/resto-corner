@@ -131,6 +131,16 @@ class ApiClient {
     return this.request<Order>(`/api/orders/${id}`);
   }
 
+  // Obtener pedidos del cliente autenticado
+  async getMyOrders(params?: { page?: number; pageSize?: number }) {
+    const query = params ? new URLSearchParams(
+      Object.entries(params)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<{ data: Order[]; totalCount: number; page: number; pageSize: number; totalPages: number }>(`/api/orders/my-orders${query ? `?${query}` : ''}`);
+  }
+
   async createOrder(data: CreateOrderRequest) {
     return this.request<Order>('/admin/api/orders/create', { method: 'POST', body: data });
   }

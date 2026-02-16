@@ -50,7 +50,7 @@ export default function OrdersPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [customDateFrom, setCustomDateFrom] = useState<string>('');
   const [customDateTo, setCustomDateTo] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
@@ -183,6 +183,7 @@ export default function OrdersPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+      console.log('Cargando pedidos, showArchived:', showArchived);
       const [ordersResponse, productsData, deliveryData, paymentData] = await Promise.all([
         api.getOrders({ showArchived }),
         api.getProducts(),
@@ -190,21 +191,31 @@ export default function OrdersPage() {
         api.getPaymentMethods(),
       ]);
       
+      console.log('Respuesta de getOrders:', ordersResponse);
+      
       // Asegurar que los pedidos estén ordenados por fecha de creación (más recientes primero)
-      const ordersList = ordersResponse.data || [];
+      const ordersList = ordersResponse?.data || ordersResponse || [];
+      console.log('Pedidos obtenidos:', ordersList.length);
+      
       // Ordenar adicionalmente por createdAt para asegurar el orden correcto
-      ordersList.sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return dateB - dateA; // Más recientes primero
-      });
-      setOrders(ordersList);
+      if (Array.isArray(ordersList)) {
+        ordersList.sort((a, b) => {
+          const dateA = new Date(a.createdAt).getTime();
+          const dateB = new Date(b.createdAt).getTime();
+          return dateB - dateA; // Más recientes primero
+        });
+        setOrders(ordersList);
+      } else {
+        console.error('ordersList no es un array:', ordersList);
+        setOrders([]);
+      }
       setProducts(productsData);
       setDeliveryPersons(deliveryData);
       setPaymentMethods(paymentData);
     } catch (error) {
       showToast('Error al cargar datos', 'error');
-      console.error(error);
+      console.error('Error al cargar pedidos:', error);
+      setOrders([]);
     } finally {
       setLoading(false);
     }
@@ -411,9 +422,11 @@ export default function OrdersPage() {
   };
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.customerAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.id.toString().includes(searchTerm);
+    const matchesSearch = !searchTerm || 
+                         order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         order.customerAddress?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         order.id?.toString().includes(searchTerm) ||
+                         order.orderNumber?.toString().includes(searchTerm);
     const matchesStatus = !statusFilter || order.status === statusFilter;
     const matchesArchived = showArchived ? order.isArchived : !order.isArchived;
     // Para el filtro de fecha, SIEMPRE usar createdAt (fecha de creación), no updatedAt (fecha de entrega)
@@ -421,6 +434,8 @@ export default function OrdersPage() {
     const matchesDate = isWithinDateFilter(order.createdAt);
     return matchesSearch && matchesStatus && matchesArchived && matchesDate;
   });
+  
+  console.log('Total pedidos cargados:', orders.length, 'Pedidos filtrados:', filteredOrders.length, 'Filtro fecha:', dateFilter, 'Filtro estado:', statusFilter);
 
   // Paginación
   const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);

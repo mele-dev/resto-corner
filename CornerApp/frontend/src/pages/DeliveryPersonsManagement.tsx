@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart, Phone } from 'lucide-react';
+import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart, Phone, CheckCircle, Ban } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
@@ -25,7 +25,7 @@ export default function DeliveryPersonsManagementPage() {
   const [deliveryPersonOrders, setDeliveryPersonOrders] = useState<Order[]>([]);
   const [cashRegisterMovements, setCashRegisterMovements] = useState<any>(null);
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
-  const [orderFilter, setOrderFilter] = useState<'all' | 'preparing' | 'delivering' | 'completed' | 'cancelled'>('all');
+  const [orderFilter, setOrderFilter] = useState<'all' | 'preparing' | 'delivering' | 'completed' | 'cancelled'>('delivering');
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
   const [isCancelOrderModalOpen, setIsCancelOrderModalOpen] = useState(false);
   
@@ -374,14 +374,18 @@ export default function DeliveryPersonsManagementPage() {
   const openDetailsModal = async (deliveryPerson: DeliveryPerson) => {
     setSelectedDeliveryPerson(deliveryPerson);
     setIsDetailsModalOpen(true);
-    // Siempre cargar todos los pedidos (activos e históricos) para poder cancelarlos si es necesario
-    await loadDeliveryPersonOrders(deliveryPerson.id, true);
+    // Cargar todos los pedidos activos (no completados ni cancelados) para ver los pedidos en camino
+    // Si necesitas ver completados, puedes cambiar el filtro a 'all' o 'completed'
+    await loadDeliveryPersonOrders(deliveryPerson.id, false);
   };
 
   const loadDeliveryPersonOrders = async (deliveryPersonId: number, includeCompleted: boolean = false) => {
     try {
+      console.log('Cargando pedidos del repartidor:', deliveryPersonId, 'includeCompleted:', includeCompleted);
       const orders = await api.getDeliveryPersonOrdersByAdmin(deliveryPersonId, includeCompleted);
-      setDeliveryPersonOrders(orders);
+      console.log('Pedidos obtenidos:', orders);
+      console.log('Cantidad de pedidos:', orders?.length || 0);
+      setDeliveryPersonOrders(orders || []);
     } catch (error) {
       console.error('Error al cargar pedidos:', error);
       setDeliveryPersonOrders([]);
@@ -1114,7 +1118,7 @@ export default function DeliveryPersonsManagementPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium">
-                  Pedidos Asignados (Todos)
+                  Pedidos Asignados
                 </h4>
                 {deliveryPersonOrders.length > 0 && (
                   <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -1147,7 +1151,16 @@ export default function DeliveryPersonsManagementPage() {
                   : deliveryPersonOrders.filter(o => o.status === orderFilter);
                 
                 if (filteredOrders.length === 0) {
-                  return <p className="text-gray-500 text-center py-4">No hay pedidos con este estado</p>;
+                  return (
+                    <div className="text-center py-4">
+                      <p className="text-gray-500">No hay pedidos con este estado</p>
+                      {orderFilter === 'delivering' && (
+                        <p className="text-sm text-gray-400 mt-2">
+                          Los pedidos en camino aparecerán aquí cuando se asignen al repartidor
+                        </p>
+                      )}
+                    </div>
+                  );
                 }
 
                 // Agrupar por estado
@@ -1222,8 +1235,42 @@ export default function DeliveryPersonsManagementPage() {
                                   </p>
                                 </div>
                               )}
-                              {/* Botón de cancelar para pedidos activos */}
-                              {(order.status === 'preparing' || order.status === 'delivering') && (
+                              {/* Botones de acción para pedidos activos */}
+                              {order.status === 'delivering' && (
+                                <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          await api.updateOrderStatus(order.id, 'completed');
+                                          showToast('Pedido finalizado exitosamente', 'success');
+                                          // Recargar pedidos del repartidor
+                                          if (selectedDeliveryPerson) {
+                                            await loadDeliveryPersonOrders(selectedDeliveryPerson.id, true);
+                                          }
+                                        } catch (error: any) {
+                                          showToast(error.message || 'Error al finalizar el pedido', 'error');
+                                        }
+                                      }}
+                                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium transition-colors"
+                                    >
+                                      <CheckCircle size={16} />
+                                      Entregado
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setOrderToCancel(order);
+                                        setIsCancelOrderModalOpen(true);
+                                      }}
+                                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-medium transition-colors"
+                                    >
+                                      <Ban size={16} />
+                                      Rechazar
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {order.status === 'preparing' && (
                                 <div className="mt-3 pt-3 border-t border-gray-200">
                                   <button
                                     onClick={() => {
