@@ -723,7 +723,7 @@ class ApiClient {
     });
   }
 
-  async closeDeliveryPersonCashRegister(deliveryPersonId: number, notes?: string) {
+  async closeDeliveryPersonCashRegister(deliveryPersonId: number, notes?: string, actualCashAmount?: number) {
     return this.request<{
       cashRegister: any;
       movements: any[];
@@ -736,7 +736,7 @@ class ApiClient {
       };
     }>(`/admin/api/delivery-persons/${deliveryPersonId}/cash-register/close`, {
       method: 'POST',
-      body: { notes },
+      body: { notes, actualCashAmount },
     });
   }
 

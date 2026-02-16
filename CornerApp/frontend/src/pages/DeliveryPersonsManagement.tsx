@@ -22,6 +22,7 @@ export default function DeliveryPersonsManagementPage() {
   const [selectedDeliveryPersonForCashRegister, setSelectedDeliveryPersonForCashRegister] = useState<number | null>(null);
   const [initialAmount, setInitialAmount] = useState<string>('0');
   const [closeNotes, setCloseNotes] = useState('');
+  const [actualCashAmount, setActualCashAmount] = useState<string>('');
   const [deliveryPersonOrders, setDeliveryPersonOrders] = useState<Order[]>([]);
   const [cashRegisterMovements, setCashRegisterMovements] = useState<any>(null);
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
@@ -191,10 +192,22 @@ export default function DeliveryPersonsManagementPage() {
   const handleCloseCashRegister = async () => {
     if (!selectedDeliveryPerson) return;
     
+    // Validar que se haya ingresado el monto en efectivo
+    if (!actualCashAmount || parseFloat(actualCashAmount) < 0) {
+      showToast('Debe ingresar el monto en efectivo que tiene el repartidor', 'error');
+      return;
+    }
+    
     try {
-      const result = await api.closeDeliveryPersonCashRegister(selectedDeliveryPerson.id, closeNotes || undefined);
+      const actualCash = parseFloat(actualCashAmount);
+      const result = await api.closeDeliveryPersonCashRegister(
+        selectedDeliveryPerson.id, 
+        closeNotes || undefined,
+        actualCash
+      );
       showToast('Caja cerrada exitosamente', 'success');
       setCloseNotes('');
+      setActualCashAmount('');
       setIsCloseCashRegisterModalOpen(false);
       
       // Mostrar movimientos
@@ -579,8 +592,10 @@ export default function DeliveryPersonsManagementPage() {
                           Crear Pedido
                         </button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedDeliveryPerson(dp);
+                            // Cargar pedidos completados antes de abrir el modal
+                            await loadDeliveryPersonOrders(dp.id, true);
                             setIsCloseCashRegisterModalOpen(true);
                           }}
                           className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-medium"
@@ -1322,42 +1337,105 @@ export default function DeliveryPersonsManagementPage() {
         onClose={() => {
           setIsCloseCashRegisterModalOpen(false);
           setCloseNotes('');
+          setActualCashAmount('');
         }}
         title="Cerrar Caja"
       >
         <div className="space-y-4">
-          <p className="text-gray-600">
-            ¿Estás seguro de que deseas cerrar la caja de {selectedDeliveryPerson?.name}?
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notas (opcional)
-            </label>
-            <textarea
-              value={closeNotes}
-              onChange={(e) => setCloseNotes(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              rows={3}
-              placeholder="Notas sobre el cierre de caja..."
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button
-              onClick={() => {
-                setIsCloseCashRegisterModalOpen(false);
-                setCloseNotes('');
-              }}
-              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleCloseCashRegister}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-            >
-              Cerrar Caja
-            </button>
-          </div>
+          {(() => {
+            const cashRegister = selectedDeliveryPerson 
+              ? cashRegisterStatuses[selectedDeliveryPerson.id]?.cashRegister 
+              : null;
+            const initialAmount = cashRegister?.initialAmount || 0;
+            
+            // Calcular total en efectivo de pedidos completados
+            const completedOrders = deliveryPersonOrders.filter(
+              o => o.status === 'completed' && 
+              o.paymentMethod?.toLowerCase() === 'cash'
+            );
+            const totalCash = completedOrders.reduce((sum, o) => sum + o.total, 0);
+            const expectedAmount = initialAmount + totalCash;
+            
+            return (
+              <>
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <h4 className="font-semibold text-blue-900 mb-3">Resumen de Caja</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Monto inicial:</span>
+                      <span className="font-medium">${initialAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Pedidos en efectivo:</span>
+                      <span className="font-medium">${totalCash.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-blue-300">
+                      <span className="font-semibold text-blue-900">Monto esperado:</span>
+                      <span className="font-bold text-blue-900 text-lg">${expectedAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Monto en efectivo que tiene el repartidor *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={actualCashAmount}
+                    onChange={(e) => setActualCashAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="0.00"
+                  />
+                  {actualCashAmount && parseFloat(actualCashAmount) !== expectedAmount && (
+                    <p className="mt-1 text-sm text-red-600">
+                      El monto ingresado (${parseFloat(actualCashAmount || '0').toFixed(2)}) no coincide con el esperado (${expectedAmount.toFixed(2)})
+                    </p>
+                  )}
+                  {actualCashAmount && parseFloat(actualCashAmount) === expectedAmount && (
+                    <p className="mt-1 text-sm text-green-600">
+                      ✓ El monto coincide correctamente
+                    </p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notas (opcional)
+                  </label>
+                  <textarea
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="Notas sobre el cierre de caja..."
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <button
+                    onClick={() => {
+                      setIsCloseCashRegisterModalOpen(false);
+                      setCloseNotes('');
+                      setActualCashAmount('');
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCloseCashRegister}
+                    disabled={!actualCashAmount || parseFloat(actualCashAmount) < 0}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cerrar Caja
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 
