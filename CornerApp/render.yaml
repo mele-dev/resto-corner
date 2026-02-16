@@ -55,7 +55,7 @@ services:
 
 databases:
   - name: cornerapp-mysql
-    databaseName: CornerAppDb
+    databaseName: cornerappdb
     user: cornerapp_user
     plan: starter
     region: oregon
