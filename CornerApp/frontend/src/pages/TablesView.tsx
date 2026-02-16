@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight } from 'lucide-react';
+import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight, Upload } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -92,6 +92,8 @@ export default function TablesViewPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [totalAmount, setTotalAmount] = useState(0);
   const [paymentProcessed, setPaymentProcessed] = useState(false);
+  const [receiptImage, setReceiptImage] = useState<string | null>(null);
+  const [receiptImagePreview, setReceiptImagePreview] = useState<string | null>(null);
   
   // POS waiting modal state
   const [isPOSWaitingModalOpen, setIsPOSWaitingModalOpen] = useState(false);
@@ -1138,6 +1140,9 @@ export default function TablesViewPage() {
     setTableForPayment(null);
     setTableOrders([]);
     setPaymentProcessed(false);
+    setReceiptImage(null);
+    setReceiptImagePreview(null);
+    setSelectedPaymentMethod('cash');
     // Cerrar también el modal de consumo si estaba abierto
     setIsTableConsumptionModalOpen(false);
     setTableForConsumption(null);
@@ -1463,6 +1468,14 @@ export default function TablesViewPage() {
       return;
     }
 
+    // Validar comprobante para transferencias
+    const isTransfer = selectedPaymentMethod.toLowerCase().includes('transfer') || 
+                       selectedPaymentMethod.toLowerCase().includes('transferencia');
+    if (isTransfer && !receiptImage) {
+      showToast('Debe adjuntar el comprobante de transferencia para continuar', 'error');
+      return;
+    }
+
     try {
       setIsProcessingPayment(true);
       
@@ -1493,7 +1506,7 @@ export default function TablesViewPage() {
       
       // Procesar el pago de todos los pedidos
       for (const order of tableOrders) {
-        await api.processTablePayment(order.id, selectedPaymentMethod, posTransactionInfo);
+        await api.processTablePayment(order.id, selectedPaymentMethod, posTransactionInfo, receiptImage || undefined);
         // Archivar el pedido después de procesar el pago para que no siga apareciendo en la mesa
         try {
           await api.archiveOrder(order.id);
@@ -2856,7 +2869,15 @@ export default function TablesViewPage() {
               </label>
               <select
                 value={selectedPaymentMethod}
-                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                onChange={(e) => {
+                  setSelectedPaymentMethod(e.target.value);
+                  // Limpiar comprobante si cambia el método de pago
+                  if (!e.target.value.toLowerCase().includes('transfer') && 
+                      !e.target.value.toLowerCase().includes('transferencia')) {
+                    setReceiptImage(null);
+                    setReceiptImagePreview(null);
+                  }
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               >
                 {paymentMethods.map((method) => (
@@ -2866,6 +2887,69 @@ export default function TablesViewPage() {
                 ))}
               </select>
             </div>
+
+            {/* Sección de Comprobante para Transferencia */}
+            {(selectedPaymentMethod.toLowerCase().includes('transfer') || 
+              selectedPaymentMethod.toLowerCase().includes('transferencia')) && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Comprobante de Transferencia {receiptImage ? '(Adjuntado)' : '*'}
+                </label>
+                {receiptImagePreview ? (
+                  <div className="relative">
+                    <img
+                      src={receiptImagePreview}
+                      alt="Vista previa del comprobante"
+                      className="w-full max-h-48 object-contain border border-gray-300 rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptImage(null);
+                        setReceiptImagePreview(null);
+                      }}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                      title="Eliminar comprobante"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-500 transition-colors">
+                    <input
+                      type="file"
+                      id="receipt-upload"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const base64String = reader.result as string;
+                            setReceiptImage(base64String);
+                            setReceiptImagePreview(base64String);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="receipt-upload"
+                      className="cursor-pointer flex flex-col items-center gap-2"
+                    >
+                      <Upload size={24} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">
+                        Haz clic para adjuntar comprobante
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        (JPG, PNG, etc.)
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-4 border-t">
               <button
