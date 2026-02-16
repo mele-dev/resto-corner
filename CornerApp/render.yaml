@@ -25,7 +25,7 @@ services:
           name: cornerapp-redis
           property: connectionString
       - key: Redis__InstanceName
-        value: CornerApp:
+        value: "CornerApp:"
       - key: Redis__Enabled
         value: "true"
       - key: RabbitMQ__Enabled
