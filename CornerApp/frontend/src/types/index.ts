@@ -87,6 +87,8 @@ export interface Product {
   displayOrder: number;
   createdAt: string;
   subProducts?: SubProduct[];
+  restaurantId?: number; // ID del restaurante al que pertenece el producto
+  restaurantName?: string; // Nombre del restaurante al que pertenece el producto
 }
 
 export interface SubProduct {

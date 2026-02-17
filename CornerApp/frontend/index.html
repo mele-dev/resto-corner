@@ -2,10 +2,34 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    
+    <!-- Favicon - SVG para navegadores modernos, PNG como fallback -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/logo.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/logo.png" />
+    
+    <!-- Viewport -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="CornerApp - Sistema de gestión de pedidos" />
-    <title>CornerApp</title>
+    
+    <!-- Meta tags -->
+    <meta name="description" content="RiDi Express - Sistema de gestión de pedidos" />
+    <meta name="theme-color" content="#D97706" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Apple iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="RiDi Express" />
+    
+    <!-- Microsoft -->
+    <meta name="msapplication-TileColor" content="#D97706" />
+    <meta name="msapplication-TileImage" content="/logo.png" />
+    
+    <title>RiDi Express</title>
   </head>
   <body>
     <div id="root"></div>

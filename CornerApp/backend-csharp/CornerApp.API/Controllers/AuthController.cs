@@ -52,32 +52,43 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "La dirección es requerida" });
         }
 
-        // Validar RestaurantId
-        if (request.RestaurantId <= 0)
+        // RestaurantId es opcional - si se proporciona, validar que existe y está activo
+        if (request.RestaurantId.HasValue && request.RestaurantId.Value > 0)
         {
-            return BadRequest(new { error = "El ID del restaurante es requerido" });
+            var restaurant = await _context.Restaurants
+                .FirstOrDefaultAsync(r => r.Id == request.RestaurantId.Value && r.IsActive);
+
+            if (restaurant == null)
+            {
+                _logger.LogWarning("Intento de registro de cliente con restaurante inexistente o inactivo - RestaurantId: {RestaurantId}", request.RestaurantId);
+                return BadRequest(new { error = "Restaurante no encontrado o inactivo" });
+            }
+
+            // Verificar si el email ya existe en el mismo restaurante (case-insensitive)
+            var emailLower = request.Email.ToLower();
+            var existingCustomer = await _context.Customers
+                .FirstOrDefaultAsync(c => c.RestaurantId == request.RestaurantId.Value && 
+                                         c.Email != null && 
+                                         c.Email.ToLower() == emailLower);
+
+            if (existingCustomer != null)
+            {
+                return BadRequest(new { error = "Este email ya está registrado en este restaurante" });
+            }
         }
-
-        // Verificar que el restaurante existe y está activo
-        var restaurant = await _context.Restaurants
-            .FirstOrDefaultAsync(r => r.Id == request.RestaurantId && r.IsActive);
-
-        if (restaurant == null)
+        else
         {
-            _logger.LogWarning("Intento de registro de cliente con restaurante inexistente o inactivo - RestaurantId: {RestaurantId}", request.RestaurantId);
-            return BadRequest(new { error = "Restaurante no encontrado o inactivo" });
-        }
+            // Si no se proporciona RestaurantId, verificar si el email ya existe sin RestaurantId (cliente compartido)
+            var emailLower = request.Email.ToLower();
+            var existingCustomer = await _context.Customers
+                .FirstOrDefaultAsync(c => c.RestaurantId == null && 
+                                         c.Email != null && 
+                                         c.Email.ToLower() == emailLower);
 
-        // Verificar si el email ya existe en el mismo restaurante (case-insensitive)
-        var emailLower = request.Email.ToLower();
-        var existingCustomer = await _context.Customers
-            .FirstOrDefaultAsync(c => c.RestaurantId == request.RestaurantId && 
-                                     c.Email != null && 
-                                     c.Email.ToLower() == emailLower);
-
-        if (existingCustomer != null)
-        {
-            return BadRequest(new { error = "Este email ya está registrado en este restaurante" });
+            if (existingCustomer != null)
+            {
+                return BadRequest(new { error = "Este email ya está registrado" });
+            }
         }
 
         // Hashear la contraseña
@@ -126,89 +137,68 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "Email y contraseña son requeridos" });
         }
 
-        // Buscar todos los clientes con ese email (case-insensitive)
+        // Buscar cliente con ese email (case-insensitive)
+        // Priorizar clientes sin RestaurantId (clientes compartidos), luego los que tienen RestaurantId
         var emailLower = request.Email.ToLower();
-        var customers = await _context.Customers
-            .Include(c => c.Restaurant)
-            .Where(c => c.Email != null && c.Email.ToLower() == emailLower && 
-                       !string.IsNullOrWhiteSpace(c.PasswordHash) &&
-                       c.RestaurantId.HasValue &&
-                       c.Restaurant != null &&
-                       c.Restaurant.IsActive)
-            .ToListAsync();
+        
+        // Primero buscar cliente compartido (sin RestaurantId)
+        var sharedCustomer = await _context.Customers
+            .FirstOrDefaultAsync(c => c.Email != null && 
+                                   c.Email.ToLower() == emailLower && 
+                                   !string.IsNullOrWhiteSpace(c.PasswordHash) &&
+                                   c.RestaurantId == null);
 
-        if (customers.Count == 0)
-        {
-            return Unauthorized(new { error = "Email o contraseña incorrectos" });
-        }
-
-        // Verificar contraseña en al menos un cliente
         Customer? validCustomer = null;
-        foreach (var customer in customers)
+
+        if (sharedCustomer != null)
         {
+            // Verificar contraseña del cliente compartido
             try
             {
-                if (BCrypt.Net.BCrypt.Verify(request.Password, customer.PasswordHash))
+                if (BCrypt.Net.BCrypt.Verify(request.Password, sharedCustomer.PasswordHash))
                 {
-                    validCustomer = customer;
-                    break;
+                    validCustomer = sharedCustomer;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error al verificar contraseña para cliente {CustomerId}", customer.Id);
+                _logger.LogError(ex, "Error al verificar contraseña para cliente compartido {CustomerId}", sharedCustomer.Id);
+            }
+        }
+
+        // Si no se encontró cliente compartido válido, buscar clientes con RestaurantId
+        if (validCustomer == null)
+        {
+            var customers = await _context.Customers
+                .Include(c => c.Restaurant)
+                .Where(c => c.Email != null && c.Email.ToLower() == emailLower && 
+                           !string.IsNullOrWhiteSpace(c.PasswordHash) &&
+                           c.RestaurantId.HasValue &&
+                           c.Restaurant != null &&
+                           c.Restaurant.IsActive)
+                .ToListAsync();
+
+            // Verificar contraseña en al menos un cliente
+            foreach (var customer in customers)
+            {
+                try
+                {
+                    if (BCrypt.Net.BCrypt.Verify(request.Password, customer.PasswordHash))
+                    {
+                        validCustomer = customer;
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error al verificar contraseña para cliente {CustomerId}", customer.Id);
+                }
             }
         }
 
         if (validCustomer == null)
         {
             return Unauthorized(new { error = "Email o contraseña incorrectos" });
-        }
-
-        // Si se especificó un RestaurantId, usar ese cliente específico
-        if (request.RestaurantId.HasValue)
-        {
-            var selectedCustomer = customers.FirstOrDefault(c => c.RestaurantId == request.RestaurantId.Value);
-            if (selectedCustomer == null)
-            {
-                return BadRequest(new { error = "No tienes acceso a este restaurante" });
-            }
-            
-            // Verificar contraseña del cliente seleccionado
-            try
-            {
-                if (!BCrypt.Net.BCrypt.Verify(request.Password, selectedCustomer.PasswordHash))
-                {
-                    return Unauthorized(new { error = "Email o contraseña incorrectos" });
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al verificar contraseña");
-                return Unauthorized(new { error = "Error al verificar la contraseña. Por favor, contacta al soporte." });
-            }
-
-            validCustomer = selectedCustomer;
-        }
-        // Si hay múltiples restaurantes y no se especificó uno, devolver lista de restaurantes
-        else if (customers.Count > 1)
-        {
-            var restaurants = customers
-                .GroupBy(c => c.RestaurantId)
-                .Select(g => new
-                {
-                    id = g.Key,
-                    name = g.First().Restaurant?.Name ?? "Restaurante desconocido",
-                    address = g.First().Restaurant?.Address,
-                    phone = g.First().Restaurant?.Phone
-                })
-                .ToList();
-
-            return Ok(new
-            {
-                requiresRestaurantSelection = true,
-                restaurants = restaurants
-            });
         }
 
         // Generar token JWT

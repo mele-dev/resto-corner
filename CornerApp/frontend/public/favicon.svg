@@ -1,0 +1,73 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo transparente (no se dibuja nada, es transparente por defecto) -->
+  
+  <!-- Tablet/Smartphone frame - contorno negro -->
+  <rect
+    x="20"
+    y="15"
+    width="80"
+    height="90"
+    rx="8"
+    fill="none"
+    stroke="black"
+    stroke-width="4"
+  />
+  
+  <!-- Screen area - SOLO esta parte es blanca -->
+  <rect
+    x="24"
+    y="25"
+    width="72"
+    height="70"
+    rx="4"
+    fill="white"
+    stroke="black"
+    stroke-width="1"
+  />
+  
+  <!-- Camera and sensor dots at top -->
+  <circle cx="50" cy="20" r="2" fill="black" />
+  <circle cx="70" cy="20" r="2" fill="black" />
+  
+  <!-- Text "RiDi" in orange -->
+  <text
+    x="60"
+    y="50"
+    font-size="14"
+    font-weight="bold"
+    font-family="Arial, sans-serif"
+    fill="#D97706"
+    text-anchor="middle"
+    letter-spacing="0.5"
+  >
+    RiDi
+  </text>
+  
+  <!-- Text "Express" in dark gray -->
+  <text
+    x="60"
+    y="68"
+    font-size="16"
+    font-weight="bold"
+    font-family="Arial, sans-serif"
+    fill="#4B5563"
+    text-anchor="middle"
+    letter-spacing="0.3"
+  >
+    Express
+  </text>
+  
+  <!-- Text "clientes" in light gray -->
+  <text
+    x="60"
+    y="82"
+    font-size="11"
+    font-weight="normal"
+    font-family="Arial, sans-serif"
+    fill="#9CA3AF"
+    text-anchor="middle"
+    letter-spacing="0.2"
+  >
+    clientes
+  </text>
+</svg>

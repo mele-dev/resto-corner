@@ -689,11 +689,24 @@ public class OrdersController : ControllerBase
                 }
             }
 
-            // Si no se obtuvo RestaurantId del token o cliente, obtenerlo del primer producto
+            // Si no se obtuvo RestaurantId del token o cliente, obtenerlo de los productos
             if (!restaurantId.HasValue && existingProducts.Any())
             {
-                restaurantId = existingProducts.First().RestaurantId;
-                _logger.LogInformation("RestaurantId obtenido del primer producto: {RestaurantId}", restaurantId);
+                // Obtener RestaurantId del primer producto
+                var firstProductRestaurantId = existingProducts.First().RestaurantId;
+                
+                // Validar que todos los productos sean del mismo restaurante
+                var allSameRestaurant = existingProducts.All(p => p.RestaurantId == firstProductRestaurantId);
+                if (!allSameRestaurant)
+                {
+                    var distinctRestaurantIds = existingProducts.Select(p => p.RestaurantId).Distinct().ToList();
+                    _logger.LogWarning("Intento de crear pedido con productos de diferentes restaurantes: {RestaurantIds}", 
+                        string.Join(", ", distinctRestaurantIds));
+                    return BadRequest(new { error = "Todos los productos del pedido deben ser del mismo restaurante" });
+                }
+                
+                restaurantId = firstProductRestaurantId;
+                _logger.LogInformation("RestaurantId obtenido de los productos: {RestaurantId}", restaurantId);
             }
 
             // Validar que tenemos un RestaurantId
@@ -701,6 +714,13 @@ public class OrdersController : ControllerBase
             {
                 _logger.LogError("No se pudo determinar RestaurantId para el pedido");
                 return BadRequest(new { error = "No se pudo determinar el restaurante. Por favor, inicia sesión nuevamente." });
+            }
+            
+            // Validar que todos los productos pertenezcan al restaurante determinado
+            if (existingProducts.Any(p => p.RestaurantId != restaurantId.Value))
+            {
+                _logger.LogWarning("Intento de crear pedido con productos de diferentes restaurantes");
+                return BadRequest(new { error = "Todos los productos del pedido deben ser del mismo restaurante" });
             }
 
             // Generar número de pedido único de 8 dígitos para pedidos desde clientes
