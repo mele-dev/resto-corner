@@ -5,7 +5,7 @@ import Modal from './Modal';
 interface CloseCashRegisterModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (notes?: string) => Promise<void>;
+  onConfirm: (notes?: string, actualCashAmount?: number) => Promise<void>;
   cashRegister?: {
     totalSales: number;
     totalCash: number;
@@ -22,6 +22,7 @@ export default function CloseCashRegisterModal({
   cashRegister,
 }: CloseCashRegisterModalProps) {
   const [notes, setNotes] = useState<string>('');
+  const [actualCashAmount, setActualCashAmount] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,10 +30,16 @@ export default function CloseCashRegisterModal({
     e.preventDefault();
     setError(null);
 
+    if (!actualCashAmount || parseFloat(actualCashAmount) < 0) {
+      setError('Debe ingresar el monto en efectivo que tiene en caja');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      await onConfirm(notes.trim() || undefined);
+      await onConfirm(notes.trim() || undefined, parseFloat(actualCashAmount));
       setNotes('');
+      setActualCashAmount('');
       onClose();
     } catch (err: any) {
       setError(err.message || 'Error al cerrar la caja');
@@ -44,6 +51,7 @@ export default function CloseCashRegisterModal({
   const handleClose = () => {
     if (!isLoading) {
       setNotes('');
+      setActualCashAmount('');
       setError(null);
       onClose();
     }
@@ -103,6 +111,46 @@ export default function CloseCashRegisterModal({
           )}
 
           <div>
+            <label htmlFor="actualCashAmount" className="block text-sm font-medium text-gray-700 mb-2">
+              Monto en efectivo que tiene en caja *
+            </label>
+            <input
+              id="actualCashAmount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={actualCashAmount}
+              onChange={(e) => setActualCashAmount(e.target.value)}
+              disabled={isLoading}
+              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              placeholder="0.00"
+            />
+            {actualCashAmount && cashRegister && (
+              (() => {
+                const entered = parseFloat(actualCashAmount || '0');
+                const expected = finalAmount;
+                const difference = Math.abs(entered - expected);
+                if (difference > 0.01) {
+                  return (
+                    <p className="mt-1 text-sm text-red-600">
+                      El monto ingresado (${entered.toFixed(2)}) no coincide con el esperado (${expected.toFixed(2)})
+                      {difference > 0 && (
+                        <span className="block">Diferencia: ${difference.toFixed(2)}</span>
+                      )}
+                    </p>
+                  );
+                } else {
+                  return (
+                    <p className="mt-1 text-sm text-green-600">
+                      ✓ El monto coincide correctamente
+                    </p>
+                  );
+                }
+              })()
+            )}
+          </div>
+
+          <div>
             <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
               Notas (opcional)
             </label>
@@ -138,8 +186,8 @@ export default function CloseCashRegisterModal({
             </button>
             <button
               type="submit"
-              disabled={isLoading}
-              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+              disabled={isLoading || !actualCashAmount || parseFloat(actualCashAmount) < 0}
+              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isLoading && (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

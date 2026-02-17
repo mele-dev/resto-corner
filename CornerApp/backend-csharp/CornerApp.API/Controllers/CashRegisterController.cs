@@ -276,13 +276,33 @@ public class CashRegisterController : ControllerBase
             var totalTransfer = orders.Where(o => o.PaymentMethod != null && o.PaymentMethod.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower())
                 .Sum(o => o.Total);
 
-            // Calcular monto final (inicial + ventas en efectivo)
-            var finalAmount = cashRegister.InitialAmount + totalCash;
+            // Calcular monto final esperado (inicial + ventas en efectivo)
+            var expectedFinalAmount = cashRegister.InitialAmount + totalCash;
+
+            // Validar que el monto en efectivo ingresado coincida con el esperado
+            if (request?.ActualCashAmount.HasValue == true)
+            {
+                var actualCashAmount = request.ActualCashAmount.Value;
+                if (Math.Abs(actualCashAmount - expectedFinalAmount) > 0.01m) // Tolerancia de 1 centavo
+                {
+                    return BadRequest(new
+                    {
+                        error = "El monto en efectivo ingresado no coincide con el esperado",
+                        expectedAmount = expectedFinalAmount,
+                        actualAmount = actualCashAmount,
+                        difference = actualCashAmount - expectedFinalAmount
+                    });
+                }
+            }
+            else
+            {
+                return BadRequest(new { error = "Debe ingresar el monto en efectivo que tiene en caja" });
+            }
 
             // Actualizar caja
             cashRegister.ClosedAt = DateTime.UtcNow;
             cashRegister.IsOpen = false;
-            cashRegister.FinalAmount = finalAmount;
+            cashRegister.FinalAmount = request.ActualCashAmount.Value;
             cashRegister.TotalSales = totalSales;
             cashRegister.TotalCash = totalCash;
             cashRegister.TotalPOS = totalPOS;
@@ -294,7 +314,7 @@ public class CashRegisterController : ControllerBase
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Caja cerrada: ID {CashRegisterId}, Total ventas: {TotalSales}, Monto final: {FinalAmount}, Usuario: {User}",
-                cashRegister.Id, totalSales, finalAmount, cashRegister.ClosedBy);
+                cashRegister.Id, totalSales, cashRegister.FinalAmount, cashRegister.ClosedBy);
 
             return Ok(cashRegister);
         }
@@ -460,4 +480,5 @@ public class OpenCashRegisterRequest
 public class CloseCashRegisterRequest
 {
     public string? Notes { get; set; }
+    public decimal? ActualCashAmount { get; set; }
 }

@@ -3,7 +3,10 @@
  * Maneja todas las peticiones HTTP al backend
  */
 
-const API_BASE_URL = '';
+// Detectar si estamos accediendo desde ngrok o localmente
+const isNgrok = window.location.hostname.includes('ngrok-free.dev') || window.location.hostname.includes('ngrok.io');
+// URL del backend: ngrok si accedemos desde ngrok, sino usar proxy local
+const API_BASE_URL = isNgrok ? 'https://michele-comfiest-soo.ngrok-free.dev' : '';
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -980,10 +983,10 @@ class ApiClient {
     });
   }
 
-  async closeCashRegister(notes?: string) {
+  async closeCashRegister(notes?: string, actualCashAmount?: number) {
     return this.request<any>('/admin/api/cash-register/close', {
       method: 'POST',
-      body: { notes },
+      body: { notes, actualCashAmount },
     });
   }
 

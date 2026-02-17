@@ -122,9 +122,9 @@ export default function TablesPage() {
     }
   };
 
-  const handleCloseCashRegister = async (notes?: string) => {
+  const handleCloseCashRegister = async (notes?: string, actualCashAmount?: number) => {
     try {
-      await api.closeCashRegister(notes);
+      await api.closeCashRegister(notes, actualCashAmount);
       showToast('Caja cerrada exitosamente', 'success');
       await loadCashRegisterStatus();
     } catch (error: any) {

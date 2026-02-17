@@ -1,0 +1,17 @@
+{
+  "files.autoSave": "off",
+  "editor.formatOnSave": false,
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/**": true,
+    "**/dist/**": true,
+    "**/.vite/**": true,
+    "**/*.log": true
+  },
+  "[typescript]": {
+    "editor.formatOnSave": false
+  },
+  "[javascript]": {
+    "editor.formatOnSave": false
+  }
+}
