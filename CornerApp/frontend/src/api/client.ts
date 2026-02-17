@@ -650,7 +650,12 @@ class ApiClient {
 
   // SubProducts
   async getSubProductsByProduct(productId: number) {
-    return this.request<SubProduct[]>(`/admin/api/subproducts/product/${productId}`);
+    // Si estamos en la sección de mozo, usar el endpoint público
+    const isWaiterRoute = window.location.pathname.includes('/mozo');
+    const endpoint = isWaiterRoute 
+      ? `/admin/api/subproducts/waiter/product/${productId}`
+      : `/admin/api/subproducts/product/${productId}`;
+    return this.request<SubProduct[]>(endpoint, { skipAuth: isWaiterRoute });
   }
 
   async getSubProduct(id: number) {

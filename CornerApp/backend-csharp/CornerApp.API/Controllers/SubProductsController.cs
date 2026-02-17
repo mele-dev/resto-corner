@@ -29,6 +29,36 @@ public class SubProductsController : ControllerBase
     }
 
     /// <summary>
+    /// Endpoint público para mozos: Obtiene todos los subproductos disponibles de un producto específico (sin autenticación)
+    /// </summary>
+    [HttpGet("waiter/product/{productId}")]
+    [AllowAnonymous]
+    public async Task<ActionResult> GetSubProductsByProductForWaiter(int productId)
+    {
+        var subProducts = await _context.SubProducts
+            .AsNoTracking()
+            .Include(sp => sp.Product)
+            .Where(sp => sp.ProductId == productId && sp.IsAvailable && sp.Product != null && sp.Product.IsAvailable)
+            .OrderBy(sp => sp.DisplayOrder)
+            .ThenBy(sp => sp.Name)
+            .Select(sp => new
+            {
+                id = sp.Id,
+                name = sp.Name,
+                description = sp.Description,
+                price = sp.Price,
+                productId = sp.ProductId,
+                displayOrder = sp.DisplayOrder,
+                isAvailable = sp.IsAvailable,
+                createdAt = sp.CreatedAt,
+                updatedAt = sp.UpdatedAt
+            })
+            .ToListAsync();
+
+        return Ok(subProducts);
+    }
+
+    /// <summary>
     /// Obtiene todos los subproductos de un producto específico
     /// </summary>
     [HttpGet("product/{productId}")]

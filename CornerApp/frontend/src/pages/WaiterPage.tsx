@@ -33,8 +33,8 @@ export default function WaiterPage() {
   const [orderItems, setOrderItems] = useState<Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productQuantity, setProductQuantity] = useState(1);
-  const [_productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
-  const [_selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
+  const [productSubProducts, setProductSubProducts] = useState<SubProduct[]>([]);
+  const [selectedSubProducts, setSelectedSubProducts] = useState<number[]>([]);
   const [orderComments, setOrderComments] = useState<string>('');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
@@ -717,11 +717,18 @@ export default function WaiterPage() {
                       .map((product) => (
                         <button
                           key={product.id}
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedProductId(product.id);
                             setProductQuantity(1);
                             setSelectedSubProducts([]);
-                            setProductSubProducts([]);
+                            // Cargar subproductos del producto seleccionado
+                            try {
+                              const subProducts = await api.getSubProductsByProduct(product.id);
+                              setProductSubProducts(subProducts.filter(sp => sp.isAvailable));
+                            } catch (error) {
+                              console.error('Error loading subproducts:', error);
+                              setProductSubProducts([]);
+                            }
                           }}
                           className={`p-3 border-2 rounded-lg text-left transition-all ${
                             selectedProductId === product.id
@@ -744,7 +751,54 @@ export default function WaiterPage() {
                 </div>
 
                 {selectedProductId && (
-                  <div className="space-y-2 pt-2 border-t">
+                  <div className="space-y-3 pt-2 border-t">
+                    {/* Subproductos */}
+                    {productSubProducts.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Subproductos (opcional)
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                          {productSubProducts.map((subProduct) => (
+                            <label
+                              key={subProduct.id}
+                              className="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                              style={{
+                                borderColor: selectedSubProducts.includes(subProduct.id)
+                                  ? 'rgb(59, 130, 246)'
+                                  : 'rgb(229, 231, 235)',
+                                backgroundColor: selectedSubProducts.includes(subProduct.id)
+                                  ? 'rgb(239, 246, 255)'
+                                  : 'transparent',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedSubProducts.includes(subProduct.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSubProducts([...selectedSubProducts, subProduct.id]);
+                                  } else {
+                                    setSelectedSubProducts(selectedSubProducts.filter(id => id !== subProduct.id));
+                                  }
+                                }}
+                                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                              />
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-gray-800">{subProduct.name}</div>
+                                {subProduct.description && (
+                                  <div className="text-xs text-gray-500">{subProduct.description}</div>
+                                )}
+                                <div className="text-xs font-semibold text-primary-600 mt-1">
+                                  +${subProduct.price.toFixed(2)}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-2 items-center">
                       <label className="text-sm font-medium text-gray-700">Cantidad:</label>
                       <input
@@ -760,14 +814,24 @@ export default function WaiterPage() {
                         if (selectedProductId) {
                           const product = products.find(p => p.id === selectedProductId);
                           if (product) {
+                            const selectedSubs = productSubProducts.filter(sp => selectedSubProducts.includes(sp.id));
+                            const subProductsTotal = selectedSubs.reduce((sum, sp) => sum + sp.price, 0);
+                            
                             setOrderItems([...orderItems, {
                               id: product.id,
                               name: product.name,
-                              price: product.price,
+                              price: product.price + subProductsTotal,
                               quantity: productQuantity,
+                              subProducts: selectedSubs.length > 0 ? selectedSubs.map(sp => ({
+                                id: sp.id,
+                                name: sp.name,
+                                price: sp.price
+                              })) : undefined
                             }]);
                             setSelectedProductId(null);
                             setProductQuantity(1);
+                            setSelectedSubProducts([]);
+                            setProductSubProducts([]);
                           }
                         }
                       }}
@@ -786,10 +850,21 @@ export default function WaiterPage() {
                 <h3 className="text-sm font-medium text-gray-700 mb-2">Items del Pedido</h3>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {orderItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div key={index} className="flex items-start justify-between p-2 bg-gray-50 rounded-lg">
                       <div className="flex-1">
                         <div className="font-medium text-gray-800">{item.name}</div>
-                        <div className="text-sm text-gray-500">
+                        {item.subProducts && item.subProducts.length > 0 && (
+                          <div className="mt-1 ml-3 space-y-1">
+                            {item.subProducts.map((subProduct, subIndex) => (
+                              <div key={subIndex} className="text-xs text-gray-600 flex items-center gap-1">
+                                <span className="text-primary-600">+</span>
+                                <span>{subProduct.name}</span>
+                                <span className="text-primary-600">(+${subProduct.price.toFixed(2)})</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="text-sm text-gray-500 mt-1">
                           {item.quantity}x ${item.price.toFixed(2)} = ${(item.price * item.quantity).toFixed(2)}
                         </div>
                       </div>
