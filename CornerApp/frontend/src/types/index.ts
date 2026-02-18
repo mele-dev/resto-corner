@@ -41,6 +41,7 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  isRejected?: boolean; // Indica si el item fue rechazado por la cocina
   subProducts?: OrderItemSubProduct[]; // Subproductos (guarniciones) asociados
 }
 
@@ -327,6 +328,7 @@ export interface BusinessInfo {
   createdAt: string;
   updatedAt: string;
   orderCompletionWebhookUrl?: string;
+  dollarExchangeRate?: number; // Tipo de cambio del dólar (ej: 40.50 significa 1 USD = 40.50 UYU)
 }
 
 export interface UpdateBusinessInfoRequest {
@@ -350,6 +352,7 @@ export interface UpdateBusinessInfoRequest {
   welcomeMessage?: string;
   closedMessage?: string;
   orderCompletionWebhookUrl?: string;
+  dollarExchangeRate?: number; // Tipo de cambio del dólar (ej: 40.50 significa 1 USD = 40.50 UYU)
 }
 
 // Delivery Zone
@@ -615,6 +618,22 @@ export interface CloseCashRegisterRequest {
   notes?: string;
 }
 
+export interface ExpressCounterOrder {
+  id: number;
+  createdAt: string;
+  customerName: string;
+  total: number;
+  paymentMethod: string;
+}
+
+export interface ExpressCounterByDayHour {
+  date: string;
+  hour: number;
+  count: number;
+  total: number;
+  orders: ExpressCounterOrder[];
+}
+
 export interface CashRegisterReport {
   id: number;
   openedAt: string;
@@ -631,6 +650,9 @@ export interface CashRegisterReport {
   closedBy?: string;
   notes?: string;
   duration: number; // horas
+  expressCounterTotal?: number;
+  expressCounterCount?: number;
+  expressCounterByDayHour?: ExpressCounterByDayHour[];
 }
 
 export interface CashRegistersReport {
@@ -645,6 +667,8 @@ export interface CashRegistersReport {
     totalCash: number;
     totalPOS: number;
     totalTransfer: number;
+    totalExpressCounter?: number;
+    totalExpressCounterCount?: number;
   };
   cashRegisters: CashRegisterReport[];
 }

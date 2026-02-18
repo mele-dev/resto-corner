@@ -148,6 +148,16 @@ class ApiClient {
     return this.request<Order>('/admin/api/orders/create', { method: 'POST', body: data });
   }
 
+  async rejectOrderItem(orderId: number, itemId: number, isRejected: boolean) {
+    return this.request<{ success: boolean; message: string; order: any; item: any }>(
+      `/api/orders/${orderId}/items/${itemId}/reject`,
+      {
+        method: 'PATCH',
+        body: { isRejected },
+      }
+    );
+  }
+
   async updateOrderStatus(id: number, status: string, deliveryPersonId?: number) {
     return this.request<Order>(`/admin/api/orders/${id}/status`, {
       method: 'PUT',
@@ -846,6 +856,10 @@ class ApiClient {
 
   async createOrderFromTableForWaiter(tableId: number, data: { items: Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>; paymentMethod?: string; comments?: string }) {
     return this.request<{ id: number; message: string; order: Order; table: Table }>(`/api/tables/waiter/${tableId}/create-order`, { method: 'POST', body: data, skipAuth: true });
+  }
+
+  async createExpressCounterOrder(data: { customerName: string; items: Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>; paymentMethod: string; total: number }) {
+    return this.request<{ id: number; message: string; order: Order }>('/api/orders/express-counter', { method: 'POST', body: data });
   }
 
   // Spaces

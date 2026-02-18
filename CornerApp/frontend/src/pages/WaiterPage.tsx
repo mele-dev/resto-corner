@@ -711,7 +711,7 @@ export default function WaiterPage() {
                   <label className="block text-sm font-medium text-gray-700">
                     Selecciona un Producto
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
                     {products
                       .filter(p => p.categoryId === selectedCategoryId && p.isAvailable)
                       .map((product) => (
@@ -730,19 +730,19 @@ export default function WaiterPage() {
                               setProductSubProducts([]);
                             }
                           }}
-                          className={`p-3 border-2 rounded-lg text-left transition-all ${
+                          className={`p-2 border rounded-lg text-left transition-all ${
                             selectedProductId === product.id
                               ? 'border-primary-500 bg-primary-50'
                               : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
                           }`}
                         >
-                          <div className="font-medium text-gray-800">{product.name}</div>
+                          <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
                           {product.description && (
-                            <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                            <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
                               {product.description}
                             </div>
                           )}
-                          <div className="text-sm font-bold text-primary-600 mt-2">
+                          <div className="text-xs font-bold text-primary-600 mt-1">
                             ${product.price.toFixed(2)}
                           </div>
                         </button>

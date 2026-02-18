@@ -674,6 +674,41 @@ public class AdminReportsController : ControllerBase
                 var totalTransfer = orders.Where(o => o.PaymentMethod.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower())
                     .Sum(o => o.Total);
 
+                // Filtrar pedidos de mostrador express (identificados por el comentario)
+                var expressCounterOrders = orders.Where(o => 
+                    !string.IsNullOrEmpty(o.Comments) && 
+                    o.Comments.Contains("MOSTRADOR EXPRESS", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var totalExpressCounter = expressCounterOrders.Sum(o => o.Total);
+                var expressCounterCount = expressCounterOrders.Count;
+
+                // Agrupar ventas de mostrador express por día y hora
+                var expressCounterByDayHour = expressCounterOrders
+                    .GroupBy(o => new
+                    {
+                        Date = o.CreatedAt.Date,
+                        Hour = o.CreatedAt.Hour
+                    })
+                    .Select(g => new
+                    {
+                        date = g.Key.Date.ToString("yyyy-MM-dd"),
+                        hour = g.Key.Hour,
+                        count = g.Count(),
+                        total = g.Sum(o => o.Total),
+                        orders = g.Select(o => new
+                        {
+                            id = o.Id,
+                            createdAt = o.CreatedAt,
+                            customerName = o.CustomerName,
+                            total = o.Total,
+                            paymentMethod = o.PaymentMethod
+                        }).OrderBy(o => o.createdAt).ToList()
+                    })
+                    .OrderBy(x => x.date)
+                    .ThenBy(x => x.hour)
+                    .ToList();
+
                 cashRegisterReports.Add(new
                 {
                     id = cashRegister.Id,
@@ -692,9 +727,17 @@ public class AdminReportsController : ControllerBase
                     notes = cashRegister.Notes,
                     duration = cashRegister.ClosedAt.HasValue 
                         ? (cashRegister.ClosedAt.Value - cashRegister.OpenedAt).TotalHours 
-                        : (now - cashRegister.OpenedAt).TotalHours
+                        : (now - cashRegister.OpenedAt).TotalHours,
+                    // Información de Mostrador Express
+                    expressCounterTotal = totalExpressCounter,
+                    expressCounterCount = expressCounterCount,
+                    expressCounterByDayHour = expressCounterByDayHour
                 });
             }
+
+            // Calcular totales de mostrador express para el resumen
+            var summaryTotalExpressCounter = cashRegisterReports.Sum(r => (decimal)((dynamic)r).expressCounterTotal);
+            var summaryTotalExpressCounterCount = cashRegisterReports.Sum(r => (int)((dynamic)r).expressCounterCount);
 
             var summary = new
             {
@@ -704,7 +747,9 @@ public class AdminReportsController : ControllerBase
                 totalSales = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalSales),
                 totalCash = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalCash),
                 totalPOS = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalPOS),
-                totalTransfer = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalTransfer)
+                totalTransfer = cashRegisterReports.Sum(r => (decimal)((dynamic)r).totalTransfer),
+                totalExpressCounter = summaryTotalExpressCounter,
+                totalExpressCounterCount = summaryTotalExpressCounterCount
             };
 
             return Ok(new

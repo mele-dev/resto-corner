@@ -1155,7 +1155,7 @@ export default function ReportsPage() {
           </h2>
           
           {cashRegistersReport.summary && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
               <div className="bg-gray-50 rounded-lg p-4">
                 <div className="text-2xl font-bold text-gray-800">{cashRegistersReport.summary.totalCashRegisters}</div>
                 <div className="text-sm text-gray-500">Total Cajas</div>
@@ -1172,6 +1172,18 @@ export default function ReportsPage() {
                 <div className="text-2xl font-bold text-purple-600">{formatCurrency(cashRegistersReport.summary.totalCash)}</div>
                 <div className="text-sm text-gray-500">Total Efectivo</div>
               </div>
+              {cashRegistersReport.summary.totalExpressCounter !== undefined && (
+                <>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-600">{formatCurrency(cashRegistersReport.summary.totalExpressCounter)}</div>
+                    <div className="text-sm text-gray-500">Mostrador Express</div>
+                  </div>
+                  <div className="bg-orange-100 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-700">{cashRegistersReport.summary.totalExpressCounterCount || 0}</div>
+                    <div className="text-sm text-gray-500">Ventas Express</div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1187,6 +1199,7 @@ export default function ReportsPage() {
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Efectivo</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">POS</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Transferencias</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Mostrador Express</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Final</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
                   </tr>
@@ -1218,6 +1231,18 @@ export default function ReportsPage() {
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-purple-600">
                         {formatCurrency(cashRegister.totalTransfer)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-orange-600 font-medium">
+                        {cashRegister.expressCounterTotal !== undefined ? (
+                          <div>
+                            <div>{formatCurrency(cashRegister.expressCounterTotal)}</div>
+                            {cashRegister.expressCounterCount !== undefined && cashRegister.expressCounterCount > 0 && (
+                              <div className="text-xs text-orange-500">({cashRegister.expressCounterCount} ventas)</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-bold text-primary-600">
                         {formatCurrency(cashRegister.finalAmount)}
@@ -1336,7 +1361,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Resumen */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <div className="bg-blue-50 rounded-lg p-4">
                 <div className="text-2xl font-bold text-blue-600">{cashRegisterMovements.summary.totalOrders}</div>
                 <div className="text-sm text-gray-600">Total Pedidos</div>
@@ -1359,6 +1384,22 @@ export default function ReportsPage() {
                 </div>
                 <div className="text-sm text-gray-600">POS + Transfer</div>
               </div>
+              {cashRegisterMovements.summary.expressCounterTotal !== undefined && (
+                <>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {formatCurrency(cashRegisterMovements.summary.expressCounterTotal)}
+                    </div>
+                    <div className="text-sm text-gray-600">Mostrador Express</div>
+                  </div>
+                  <div className="bg-orange-100 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-700">
+                      {cashRegisterMovements.summary.expressCounterCount || 0}
+                    </div>
+                    <div className="text-sm text-gray-600">Ventas Express</div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Desglose por Método de Pago */}
@@ -1380,6 +1421,68 @@ export default function ReportsPage() {
                           {formatCurrency(method.total)}
                         </span>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Mostrador Express por Día y Hora */}
+            {cashRegisterMovements.expressCounterByDayHour && cashRegisterMovements.expressCounterByDayHour.length > 0 && (
+              <div className="bg-white rounded-lg border border-orange-200 p-4">
+                <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <span className="text-orange-600">🍊</span>
+                  Mostrador Express - Ventas por Día y Hora
+                </h3>
+                <div className="space-y-4">
+                  {cashRegisterMovements.expressCounterByDayHour.map((dayHour: any, index: number) => (
+                    <div key={index} className="bg-orange-50 rounded-lg p-4 border border-orange-100">
+                      <div className="flex justify-between items-center mb-2">
+                        <div>
+                          <div className="font-semibold text-gray-800">
+                            {new Date(dayHour.date).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Hora: {dayHour.hour}:00 - {dayHour.hour + 1}:00
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-orange-600">
+                            {formatCurrency(dayHour.total)}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {dayHour.count} venta{dayHour.count !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+                      {dayHour.orders && dayHour.orders.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-orange-200">
+                          <div className="space-y-2">
+                            {dayHour.orders.map((order: any, orderIndex: number) => (
+                              <div key={orderIndex} className="flex justify-between items-center text-sm">
+                                <div>
+                                  <span className="font-medium text-gray-700">#{order.id}</span>
+                                  <span className="text-gray-600 ml-2">
+                                    {order.customerName || 'Cliente Mostrador'}
+                                  </span>
+                                  <span className="text-gray-500 ml-2">
+                                    ({new Date(order.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-semibold text-gray-800">{formatCurrency(order.total)}</span>
+                                  <span className="text-gray-500 ml-2 text-xs capitalize">
+                                    {order.paymentMethod === 'cash' ? 'Efectivo' :
+                                     order.paymentMethod === 'pos' ? 'POS' :
+                                     order.paymentMethod === 'transfer' ? 'Transferencia' :
+                                     order.paymentMethod}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

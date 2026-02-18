@@ -68,14 +68,17 @@ public class CashRegisterController : ControllerBase
 
             // Calcular totales desde los pedidos de ESTA sesión de caja específica
             // Solo contar pedidos creados DESPUÉS de que se abrió esta caja
+            // Incluir pedidos archivados que fueron completados durante esta sesión (fueron cobrados)
+            // Esto debe coincidir con la lógica del endpoint CloseCashRegister
             List<Order> orders = new();
             try
             {
                 orders = await _context.Orders
                     .Where(o => o.RestaurantId == restaurantId
                         && o.CreatedAt >= openCashRegister.OpenedAt
-                        && o.Status == OrderConstants.STATUS_COMPLETED
-                        && !o.IsArchived)
+                        && o.Status == OrderConstants.STATUS_COMPLETED)
+                    // Removido: && !o.IsArchived - Ahora incluimos pedidos archivados que fueron cobrados
+                    // para que coincida con el cálculo al cerrar la caja
                     .ToListAsync();
             }
             catch (Exception dbEx)
@@ -404,6 +407,7 @@ public class CashRegisterController : ControllerBase
                     paymentMethod = o.PaymentMethod,
                     total = o.Total,
                     createdAt = o.CreatedAt,
+                    comments = o.Comments,
                     itemsCount = o.Items.Count,
                     // Información de transacción POS (si aplica)
                     posTransactionId = o.POSTransactionId,
@@ -437,6 +441,41 @@ public class CashRegisterController : ControllerBase
                 })
                 .ToList();
 
+            // Filtrar pedidos de mostrador express
+            var expressCounterOrders = orders.Where(o => 
+                !string.IsNullOrEmpty(o.comments) && 
+                o.comments.Contains("MOSTRADOR EXPRESS", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var totalExpressCounter = expressCounterOrders.Sum(o => o.total);
+            var expressCounterCount = expressCounterOrders.Count;
+
+            // Agrupar ventas de mostrador express por día y hora
+            var expressCounterByDayHour = expressCounterOrders
+                .GroupBy(o => new
+                {
+                    Date = o.createdAt.Date,
+                    Hour = o.createdAt.Hour
+                })
+                .Select(g => new
+                {
+                    date = g.Key.Date.ToString("yyyy-MM-dd"),
+                    hour = g.Key.Hour,
+                    count = g.Count(),
+                    total = g.Sum(o => o.total),
+                    orders = g.Select(o => new
+                    {
+                        id = o.id,
+                        createdAt = o.createdAt,
+                        customerName = o.customerName,
+                        total = o.total,
+                        paymentMethod = o.paymentMethod
+                    }).OrderBy(o => o.createdAt).ToList()
+                })
+                .OrderBy(x => x.date)
+                .ThenBy(x => x.hour)
+                .ToList();
+
             return Ok(new
             {
                 cashRegister = new
@@ -459,8 +498,11 @@ public class CashRegisterController : ControllerBase
                     totalCash = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_CASH.ToLower()).Sum(o => o.total),
                     totalPOS = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_POS.ToLower()).Sum(o => o.total),
                     totalTransfer = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower()).Sum(o => o.total),
-                    byPaymentMethod
-                }
+                    byPaymentMethod,
+                    expressCounterTotal = totalExpressCounter,
+                    expressCounterCount = expressCounterCount
+                },
+                expressCounterByDayHour = expressCounterByDayHour
             });
         }
         catch (Exception ex)

@@ -4,8 +4,8 @@
   "description": "Sistema de gestión de pedidos RiDi Express",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#D97706",
+  "background_color": "#05082E",
+  "theme_color": "#05082E",
   "orientation": "portrait-primary",
   "icons": [
     {

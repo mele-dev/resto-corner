@@ -52,43 +52,29 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "La dirección es requerida" });
         }
 
-        // RestaurantId es opcional - si se proporciona, validar que existe y está activo
-        if (request.RestaurantId.HasValue && request.RestaurantId.Value > 0)
+        // RestaurantId es opcional - si no se proporciona, usar 1 por defecto
+        int restaurantIdToUse = request.RestaurantId ?? 1;
+        
+        // Validar que el restaurante existe y está activo
+        var restaurant = await _context.Restaurants
+            .FirstOrDefaultAsync(r => r.Id == restaurantIdToUse && r.IsActive);
+
+        if (restaurant == null)
         {
-            var restaurant = await _context.Restaurants
-                .FirstOrDefaultAsync(r => r.Id == request.RestaurantId.Value && r.IsActive);
-
-            if (restaurant == null)
-            {
-                _logger.LogWarning("Intento de registro de cliente con restaurante inexistente o inactivo - RestaurantId: {RestaurantId}", request.RestaurantId);
-                return BadRequest(new { error = "Restaurante no encontrado o inactivo" });
-            }
-
-            // Verificar si el email ya existe en el mismo restaurante (case-insensitive)
-            var emailLower = request.Email.ToLower();
-            var existingCustomer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.RestaurantId == request.RestaurantId.Value && 
-                                         c.Email != null && 
-                                         c.Email.ToLower() == emailLower);
-
-            if (existingCustomer != null)
-            {
-                return BadRequest(new { error = "Este email ya está registrado en este restaurante" });
-            }
+            _logger.LogWarning("Intento de registro de cliente con restaurante inexistente o inactivo - RestaurantId: {RestaurantId}", restaurantIdToUse);
+            return BadRequest(new { error = "Restaurante no encontrado o inactivo" });
         }
-        else
-        {
-            // Si no se proporciona RestaurantId, verificar si el email ya existe sin RestaurantId (cliente compartido)
-            var emailLower = request.Email.ToLower();
-            var existingCustomer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.RestaurantId == null && 
-                                         c.Email != null && 
-                                         c.Email.ToLower() == emailLower);
 
-            if (existingCustomer != null)
-            {
-                return BadRequest(new { error = "Este email ya está registrado" });
-            }
+        // Verificar si el email ya existe en el mismo restaurante (case-insensitive)
+        var emailLower = request.Email.ToLower();
+        var existingCustomer = await _context.Customers
+            .FirstOrDefaultAsync(c => c.RestaurantId == restaurantIdToUse && 
+                                     c.Email != null && 
+                                     c.Email.ToLower() == emailLower);
+
+        if (existingCustomer != null)
+        {
+            return BadRequest(new { error = "Este email ya está registrado en este restaurante" });
         }
 
         // Hashear la contraseña
@@ -102,7 +88,7 @@ public class AuthController : ControllerBase
             Phone = request.Phone ?? string.Empty,
             DefaultAddress = request.DefaultAddress,
             PasswordHash = passwordHash,
-            RestaurantId = request.RestaurantId,
+            RestaurantId = restaurantIdToUse, // Usar el RestaurantId determinado (1 por defecto si no se proporciona)
             CreatedAt = DateTime.UtcNow
         };
 

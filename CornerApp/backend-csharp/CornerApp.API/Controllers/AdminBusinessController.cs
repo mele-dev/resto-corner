@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using CornerApp.API.Data;
 using CornerApp.API.Models;
+using CornerApp.API.Helpers;
 
 namespace CornerApp.API.Controllers;
 
@@ -36,13 +37,17 @@ public class AdminBusinessController : ControllerBase
     {
         try
         {
-            var info = await _context.BusinessInfo.FirstOrDefaultAsync();
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var info = await _context.BusinessInfo
+                .FirstOrDefaultAsync(b => b.RestaurantId == restaurantId);
             
             if (info == null)
             {
-                // Crear registro por defecto si no existe
+                // Crear registro por defecto si no existe para este restaurante
                 info = new BusinessInfo
                 {
+                    RestaurantId = restaurantId,
                     StoreName = "Mi Tienda",
                     Description = "Bienvenido a nuestra tienda",
                     EstimatedDeliveryMinutes = 30,
@@ -51,6 +56,9 @@ public class AdminBusinessController : ControllerBase
                 _context.BusinessInfo.Add(info);
                 await _context.SaveChangesAsync();
             }
+
+            _logger.LogInformation("GetBusinessInfo: RestaurantId = {RestaurantId}, DollarExchangeRate = {DollarExchangeRate}", 
+                restaurantId, info.DollarExchangeRate);
 
             return Ok(info);
         }
@@ -70,13 +78,22 @@ public class AdminBusinessController : ControllerBase
     {
         try
         {
-            var info = await _context.BusinessInfo.FirstOrDefaultAsync();
+            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            
+            var info = await _context.BusinessInfo
+                .FirstOrDefaultAsync(b => b.RestaurantId == restaurantId);
             
             if (info == null)
             {
-                info = new BusinessInfo();
+                info = new BusinessInfo
+                {
+                    RestaurantId = restaurantId
+                };
                 _context.BusinessInfo.Add(info);
             }
+            
+            // Asegurar que el RestaurantId no cambie
+            info.RestaurantId = restaurantId;
 
             // Actualizar campos
             if (request.StoreName != null) info.StoreName = request.StoreName;
@@ -103,6 +120,7 @@ public class AdminBusinessController : ControllerBase
             if (request.MinLongitude.HasValue) info.MinLongitude = request.MinLongitude.Value;
             if (request.MaxLongitude.HasValue) info.MaxLongitude = request.MaxLongitude.Value;
             if (request.OrderCompletionWebhookUrl != null) info.OrderCompletionWebhookUrl = request.OrderCompletionWebhookUrl;
+            if (request.DollarExchangeRate.HasValue) info.DollarExchangeRate = request.DollarExchangeRate.Value;
 
             info.UpdatedAt = DateTime.UtcNow;
 
@@ -113,8 +131,19 @@ public class AdminBusinessController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al actualizar información del negocio");
-            return StatusCode(500, new { error = "Error al actualizar información del negocio" });
+            _logger.LogError(ex, "Error al actualizar información del negocio: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
+            
+            // Verificar si el error es por una columna faltante en la base de datos
+            if (ex.Message.Contains("DollarExchangeRate") || ex.Message.Contains("Unknown column"))
+            {
+                return StatusCode(500, new { 
+                    error = "Error al actualizar información del negocio. La columna DollarExchangeRate no existe en la base de datos.",
+                    details = "Por favor, ejecuta el script SQL en Scripts/AddDollarExchangeRateToBusinessInfo.sql para agregar la columna.",
+                    message = ex.Message
+                });
+            }
+            
+            return StatusCode(500, new { error = "Error al actualizar información del negocio", details = ex.Message });
         }
     }
 
@@ -370,6 +399,7 @@ public class UpdateBusinessInfoRequest
     public double? MinLongitude { get; set; } // Longitud mínima (Oeste)
     public double? MaxLongitude { get; set; } // Longitud máxima (Este)
     public string? OrderCompletionWebhookUrl { get; set; }
+    public decimal? DollarExchangeRate { get; set; } // Tipo de cambio del dólar (ej: 40.50 significa 1 USD = 40.50 UYU)
 }
 
 public class UpdateDeliveryZoneRequest

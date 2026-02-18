@@ -92,9 +92,25 @@ public class RestaurantsController : ControllerBase
                 return BadRequest(new { error = "El nombre del restaurante es requerido" });
             }
 
+            // Generar identificador automáticamente si no se proporciona
+            string identifier;
             if (string.IsNullOrWhiteSpace(request.Identifier))
             {
-                return BadRequest(new { error = "El identificador del restaurante es requerido" });
+                // Generar identificador basado en el nombre del restaurante
+                identifier = GenerateIdentifierFromName(request.Name.Trim());
+                
+                // Verificar que el identificador generado sea único, si no, agregar un número
+                var baseIdentifier = identifier;
+                int counter = 1;
+                while (await _context.Restaurants.AnyAsync(r => r.Identifier.ToLower() == identifier.ToLower()))
+                {
+                    identifier = $"{baseIdentifier}{counter}";
+                    counter++;
+                }
+            }
+            else
+            {
+                identifier = request.Identifier.Trim().ToLower();
             }
 
             // Validar datos del admin
@@ -118,13 +134,16 @@ public class RestaurantsController : ControllerBase
                 return BadRequest(new { error = "El email del usuario admin es requerido" });
             }
 
-            // Verificar que el identificador sea único
-            var existingRestaurant = await _context.Restaurants
-                .FirstOrDefaultAsync(r => r.Identifier.ToLower() == request.Identifier.ToLower().Trim());
-
-            if (existingRestaurant != null)
+            // Verificar que el identificador sea único (solo si se proporcionó manualmente)
+            if (!string.IsNullOrWhiteSpace(request.Identifier))
             {
-                return BadRequest(new { error = "Ya existe un restaurante con ese identificador" });
+                var existingRestaurant = await _context.Restaurants
+                    .FirstOrDefaultAsync(r => r.Identifier.ToLower() == identifier.ToLower());
+
+                if (existingRestaurant != null)
+                {
+                    return BadRequest(new { error = "Ya existe un restaurante con ese identificador" });
+                }
             }
 
             // Verificar que el username del admin no esté en uso en ningún restaurante
@@ -140,7 +159,7 @@ public class RestaurantsController : ControllerBase
             var restaurant = new Restaurant
             {
                 Name = request.Name.Trim(),
-                Identifier = request.Identifier.Trim().ToLower(), // Normalizar a minúsculas
+                Identifier = identifier, // Usar el identificador generado o proporcionado
                 Address = request.Address?.Trim(),
                 Phone = request.Phone?.Trim(),
                 Email = request.Email?.Trim(),
@@ -460,6 +479,63 @@ public class RestaurantsController : ControllerBase
         {
             _logger.LogError(ex, "Error al limpiar datos huérfanos");
             return StatusCode(500, new { error = "Error al limpiar datos huérfanos", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Genera un identificador único basado en el nombre del restaurante
+    /// </summary>
+    private string GenerateIdentifierFromName(string name)
+    {
+        // Normalizar el nombre: remover acentos, convertir a minúsculas, reemplazar espacios y caracteres especiales
+        var identifier = name.ToLower()
+            .Normalize(System.Text.NormalizationForm.FormD)
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            .Aggregate("", (current, c) => current + c);
+        
+        // Reemplazar espacios y caracteres especiales con guiones
+        identifier = System.Text.RegularExpressions.Regex.Replace(identifier, @"[^a-z0-9]+", "-");
+        
+        // Remover guiones al inicio y final
+        identifier = identifier.Trim('-');
+        
+        // Si está vacío después de la normalización, usar "restaurante"
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            identifier = "restaurante";
+        }
+        
+        // Limitar a 50 caracteres
+        if (identifier.Length > 50)
+        {
+            identifier = identifier.Substring(0, 50).TrimEnd('-');
+        }
+        
+        return identifier;
+    }
+
+    /// <summary>
+    /// Obtiene el próximo ID que se asignará a un nuevo restaurante
+    /// </summary>
+    [HttpGet("next-id")]
+    public async Task<ActionResult> GetNextRestaurantId()
+    {
+        try
+        {
+            var maxId = await _context.Restaurants
+                .AsNoTracking()
+                .Select(r => (int?)r.Id)
+                .DefaultIfEmpty(0)
+                .MaxAsync();
+            
+            var nextId = maxId + 1;
+            
+            return Ok(new { nextId });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener próximo ID de restaurante");
+            return StatusCode(500, new { error = "Error al obtener próximo ID" });
         }
     }
 }

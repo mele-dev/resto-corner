@@ -99,6 +99,9 @@ public class OrderItem
     public int Quantity { get; set; }
     public decimal Subtotal => UnitPrice * Quantity;
     
+    // Indica si el item fue rechazado por la cocina
+    public bool IsRejected { get; set; } = false;
+    
     // Subproductos (guarniciones) asociados a este item
     // Se almacena como JSON string para flexibilidad
     public string? SubProductsJson { get; set; }

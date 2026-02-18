@@ -6,6 +6,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown, Utensils } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Logo from '../components/Logo/Logo';
+import Modal from '../components/Modal/Modal';
 
 export default function LoginPage() {
   const { t } = useLanguage();
@@ -13,6 +14,8 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
+  const [superAdminPassword, setSuperAdminPassword] = useState('');
   const { login } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -85,11 +88,24 @@ export default function LoginPage() {
     }
   };
 
+  const handleSuperAdminButtonClick = () => {
+    setIsSuperAdminModalOpen(true);
+    setSuperAdminPassword('');
+  };
+
   const handleSuperAdminLogin = async () => {
+    // Validar contraseña
+    if (superAdminPassword !== 'adminadmin88') {
+      showToast('Contraseña incorrecta', 'error');
+      return;
+    }
+
     try {
       setLoading(true);
       await login(null, 'admin', 'password123');
       showToast(t('login.welcomeSuperAdmin'), 'success');
+      setIsSuperAdminModalOpen(false);
+      setSuperAdminPassword('');
       navigate('/superadmin');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t('login.error');
@@ -120,8 +136,9 @@ export default function LoginPage() {
         
         {/* Contenido decorativo */}
         <div className="relative z-10 flex flex-col justify-center items-center p-12 text-white max-w-lg mx-auto w-full">
-          <h2 className="text-4xl font-bold mb-4 text-center">{t('dashboard.welcome')}</h2>
-          <p className="text-xl text-blue-200 text-center mb-12">{t('dashboard.manageOrdersDesc')}</p>
+          <div className="mb-8">
+            <Logo showText={true} height={100} />
+          </div>
           
           {/* Iconos decorativos */}
           <div className="grid grid-cols-3 gap-6 mt-8 w-full">
@@ -252,7 +269,7 @@ export default function LoginPage() {
           <div className="mt-4">
             <button
               type="button"
-              onClick={handleSuperAdminLogin}
+              onClick={handleSuperAdminButtonClick}
               disabled={loading}
               className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-600 text-white rounded-xl hover:from-yellow-600 hover:to-orange-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
             >
@@ -291,6 +308,71 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal de SuperAdmin */}
+      <Modal
+        isOpen={isSuperAdminModalOpen}
+        onClose={() => {
+          setIsSuperAdminModalOpen(false);
+          setSuperAdminPassword('');
+        }}
+        title="Acceso SuperAdmin"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="superAdminPassword" className="block text-sm font-medium text-gray-700 mb-2">
+              Contraseña de SuperAdmin
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Lock size={20} className="text-gray-400" />
+              </div>
+              <input
+                id="superAdminPassword"
+                type="password"
+                value={superAdminPassword}
+                onChange={(e) => setSuperAdminPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSuperAdminLogin();
+                  }
+                }}
+                className="block w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                placeholder="Ingresa la contraseña"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setIsSuperAdminModalOpen(false);
+                setSuperAdminPassword('');
+              }}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSuperAdminLogin}
+              disabled={loading || !superAdminPassword}
+              className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Verificando...</span>
+                </>
+              ) : (
+                <>
+                  <Crown size={18} />
+                  <span>Acceder</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

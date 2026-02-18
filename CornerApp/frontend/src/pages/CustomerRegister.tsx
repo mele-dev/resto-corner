@@ -48,6 +48,7 @@ export default function CustomerRegisterPage() {
           password,
           phone: phone.trim(),
           defaultAddress: defaultAddress.trim(),
+          restaurantId: 1, // Asignar restaurante 1 por defecto
         }),
       });
 
@@ -58,12 +59,29 @@ export default function CustomerRegisterPage() {
 
       const data = await response.json();
       
+      // Validar que se recibió el token y los datos del usuario
+      if (!data.token || !data.user) {
+        throw new Error('Error: No se recibieron los datos de autenticación');
+      }
+      
       // Guardar token y datos del cliente
       localStorage.setItem('customer_token', data.token);
       localStorage.setItem('customer_user', JSON.stringify(data.user));
       
+      // Verificar que se guardaron correctamente
+      const savedToken = localStorage.getItem('customer_token');
+      const savedUser = localStorage.getItem('customer_user');
+      
+      if (!savedToken || !savedUser) {
+        throw new Error('Error al guardar los datos de sesión');
+      }
+      
       showToast('¡Registro exitoso! Bienvenido', 'success');
-      navigate('/clientes/pedidos');
+      
+      // Pequeño delay para asegurar que el localStorage se guarde correctamente
+      setTimeout(() => {
+        navigate('/clientes/pedidos');
+      }, 100);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al registrarse';
       showToast(errorMessage, 'error');

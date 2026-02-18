@@ -10,6 +10,7 @@ import CustomerRegisterPage from './pages/CustomerRegister';
 import CustomerOrderPage from './pages/CustomerOrderPage';
 import CustomerProtectedRoute from './components/CustomerProtectedRoute';
 import Dashboard from './pages/Dashboard';
+import HomePage from './pages/HomePage';
 import OrdersPage from './pages/Orders';
 import ProductsPage from './pages/Products';
 import CategoriesPage from './pages/Categories';
@@ -34,11 +35,11 @@ import SuperAdminPage from './pages/SuperAdmin';
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/mozo/login" element={<WaiterLoginPage />} />
       <Route path="/clientes/login" element={<CustomerLoginPage />} />
       <Route path="/clientes/registro" element={<CustomerRegisterPage />} />
-      <Route path="/" element={<Navigate to="/admin" replace />} />
       {/* Ruta para SuperAdmin - sin Layout, solo gestión de restaurantes */}
       <Route
         path="/superadmin"

@@ -886,11 +886,34 @@ public class AdminOrdersController : ControllerBase
                 await _cache.RemoveAsync(ORDER_STATS_CACHE_KEY);
             }
 
+            // Recargar el pedido completo con la información del repartidor para enviarlo en la notificación
+            // Esto es especialmente importante cuando se cambia a "delivering" para que el cliente tenga el teléfono del repartidor
+            var orderWithDetails = await _context.Orders
+                .AsNoTracking()
+                .Include(o => o.Items)
+                .Include(o => o.DeliveryPerson)
+                .FirstOrDefaultAsync(o => o.Id == order.Id);
+
             // Notificar via SignalR
-            await _orderNotificationService.NotifyOrderStatusChanged(
-                order.Id, 
-                order.Status, 
-                order.DeliveryPerson?.Name);
+            if (orderWithDetails != null)
+            {
+                // Enviar actualización completa del pedido para que el frontend tenga toda la información
+                await _orderNotificationService.NotifyOrderUpdated(orderWithDetails);
+                
+                // También enviar notificación de cambio de estado
+                await _orderNotificationService.NotifyOrderStatusChanged(
+                    orderWithDetails.Id, 
+                    orderWithDetails.Status, 
+                    orderWithDetails.DeliveryPerson?.Name);
+            }
+            else
+            {
+                // Fallback si no se puede recargar el pedido
+                await _orderNotificationService.NotifyOrderStatusChanged(
+                    order.Id, 
+                    order.Status, 
+                    order.DeliveryPerson?.Name);
+            }
 
             // Disparar webhook si el pedido se completó
             if (request.Status == OrderConstants.STATUS_COMPLETED)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart, CreditCard, DollarSign } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Table as TableIcon, Users, MapPin, Grid, List, Move, Building2, X, Clock, ShoppingCart, CreditCard, DollarSign, Store, Minus } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
@@ -92,12 +92,25 @@ export default function TablesPage() {
   const [isOpenCashRegisterModalOpen, setIsOpenCashRegisterModalOpen] = useState(false);
   const [isCloseCashRegisterModalOpen, setIsCloseCashRegisterModalOpen] = useState(false);
 
+  // Mostrador Express state
+  const [isExpressCounterModalOpen, setIsExpressCounterModalOpen] = useState(false);
+  const [expressCounterItems, setExpressCounterItems] = useState<Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>>([]);
+  const [expressCounterSelectedProductId, setExpressCounterSelectedProductId] = useState<number | null>(null);
+  const [expressCounterProductQuantity, setExpressCounterProductQuantity] = useState(1);
+  const [expressCounterProductSubProducts, setExpressCounterProductSubProducts] = useState<SubProduct[]>([]);
+  const [expressCounterSelectedSubProducts, setExpressCounterSelectedSubProducts] = useState<number[]>([]);
+  const [expressCounterSelectedCategoryId, setExpressCounterSelectedCategoryId] = useState<number | null>(null);
+  const [expressCounterPaymentMethod, setExpressCounterPaymentMethod] = useState<string>('cash');
+  const [expressCounterCustomerName, setExpressCounterCustomerName] = useState<string>('');
+  const [isCreatingExpressOrder, setIsCreatingExpressOrder] = useState(false);
+
   const { showToast } = useToast();
 
   useEffect(() => {
     loadData();
     loadSpaces();
     loadProducts();
+    loadCategories();
     loadPaymentMethods();
     loadCashRegisterStatus();
   }, []);
@@ -1025,6 +1038,15 @@ export default function TablesPage() {
           <p className="text-gray-600 mt-1">Administra las mesas del restaurante</p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Botón Mostrador Express - Solo para administradores */}
+          <button
+            onClick={() => setIsExpressCounterModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors shadow-md font-medium"
+            title="Mostrador Express - Ventas rápidas sin cocina"
+          >
+            <Store size={20} />
+            <span className="whitespace-nowrap">Mostrador Express</span>
+          </button>
           {/* Cash Register Button */}
           {cashRegisterStatus?.isOpen ? (
             <button
@@ -2091,7 +2113,7 @@ export default function TablesPage() {
                 <label className="block text-sm font-medium text-gray-700">
                   Selecciona un Producto
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
                   {products
                     .filter(p => p.categoryId === selectedCategoryId && p.isAvailable)
                     .map((product) => (
@@ -2110,19 +2132,19 @@ export default function TablesPage() {
                             setProductSubProducts([]);
                           }
                         }}
-                        className={`p-3 border-2 rounded-lg text-left transition-all ${
+                        className={`p-2 border rounded-lg text-left transition-all ${
                           selectedProductId === product.id
                             ? 'border-primary-500 bg-primary-50'
                             : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
                         }`}
                       >
-                        <div className="font-medium text-gray-800">{product.name}</div>
+                        <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
                         {product.description && (
-                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
                             {product.description}
                           </div>
                         )}
-                        <div className="text-sm font-bold text-primary-600 mt-2">
+                        <div className="text-xs font-bold text-primary-600 mt-1">
                           ${product.price.toFixed(2)}
                         </div>
                       </button>
@@ -2514,6 +2536,335 @@ export default function TablesPage() {
         onConfirm={handleCloseCashRegister}
         cashRegister={cashRegisterStatus?.cashRegister}
       />
+
+      {/* Mostrador Express Modal */}
+      <Modal
+        isOpen={isExpressCounterModalOpen}
+        onClose={() => {
+          setIsExpressCounterModalOpen(false);
+          setExpressCounterItems([]);
+          setExpressCounterSelectedProductId(null);
+          setExpressCounterSelectedCategoryId(null);
+          setExpressCounterProductQuantity(1);
+          setExpressCounterProductSubProducts([]);
+          setExpressCounterSelectedSubProducts([]);
+          setExpressCounterCustomerName('');
+          setExpressCounterPaymentMethod('cash');
+        }}
+        title="Mostrador Express"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Nombre del cliente (opcional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre del Cliente (opcional)
+            </label>
+            <input
+              type="text"
+              value={expressCounterCustomerName}
+              onChange={(e) => setExpressCounterCustomerName(e.target.value)}
+              placeholder="Ej: Cliente Mostrador"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+          </div>
+
+          {/* Selección de categoría */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Categoría
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-32 overflow-y-auto">
+              {categories.map((category) => (
+                <button
+                  key={category.id}
+                  onClick={() => {
+                    setExpressCounterSelectedCategoryId(category.id);
+                    setExpressCounterSelectedProductId(null);
+                    setExpressCounterProductQuantity(1);
+                    setExpressCounterSelectedSubProducts([]);
+                  }}
+                  className={`p-2 border-2 rounded-lg text-center transition-all ${
+                    expressCounterSelectedCategoryId === category.id
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">{category.icon || '📦'}</div>
+                  <div className="text-xs font-medium text-gray-800">{category.name}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Selección de productos */}
+          {expressCounterSelectedCategoryId && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Selecciona un Producto
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
+                {products
+                  .filter(p => p.categoryId === expressCounterSelectedCategoryId && p.isAvailable)
+                  .map((product) => (
+                    <button
+                      key={product.id}
+                      onClick={async () => {
+                        setExpressCounterSelectedProductId(product.id);
+                        setExpressCounterProductQuantity(1);
+                        setExpressCounterSelectedSubProducts([]);
+                        try {
+                          const subProducts = await api.getSubProductsByProduct(product.id);
+                          setExpressCounterProductSubProducts(subProducts.filter(sp => sp.isAvailable));
+                        } catch (error) {
+                          console.error('Error loading subproducts:', error);
+                          setExpressCounterProductSubProducts([]);
+                        }
+                      }}
+                      className={`p-2 border rounded-lg text-left transition-all ${
+                        expressCounterSelectedProductId === product.id
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
+                      {product.description && (
+                        <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                          {product.description}
+                        </div>
+                      )}
+                      <div className="text-xs font-bold text-primary-600 mt-1">
+                        ${product.price.toFixed(2)}
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Guarniciones */}
+          {expressCounterSelectedProductId && expressCounterProductSubProducts.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Guarniciones (opcional)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                {expressCounterProductSubProducts.map((subProduct) => (
+                  <label
+                    key={subProduct.id}
+                    className="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={expressCounterSelectedSubProducts.includes(subProduct.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setExpressCounterSelectedSubProducts([...expressCounterSelectedSubProducts, subProduct.id]);
+                        } else {
+                          setExpressCounterSelectedSubProducts(expressCounterSelectedSubProducts.filter(id => id !== subProduct.id));
+                        }
+                      }}
+                      className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-800">{subProduct.name}</div>
+                      <div className="text-xs text-primary-600">+${subProduct.price.toFixed(2)}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cantidad y agregar al carrito */}
+          {expressCounterSelectedProductId && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Cantidad
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setExpressCounterProductQuantity(Math.max(1, expressCounterProductQuantity - 1))}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  <Minus size={18} />
+                </button>
+                <span className="text-lg font-semibold w-12 text-center">{expressCounterProductQuantity}</span>
+                <button
+                  onClick={() => setExpressCounterProductQuantity(expressCounterProductQuantity + 1)}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  <Plus size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    const product = products.find(p => p.id === expressCounterSelectedProductId);
+                    if (product) {
+                      const selectedSubProductsData = expressCounterProductSubProducts
+                        .filter(sp => expressCounterSelectedSubProducts.includes(sp.id))
+                        .map(sp => ({ id: sp.id, name: sp.name, price: sp.price }));
+                      
+                      const itemPrice = product.price + selectedSubProductsData.reduce((sum, sp) => sum + sp.price, 0);
+                      
+                      setExpressCounterItems([...expressCounterItems, {
+                        id: product.id,
+                        name: product.name,
+                        price: itemPrice,
+                        quantity: expressCounterProductQuantity,
+                        subProducts: selectedSubProductsData.length > 0 ? selectedSubProductsData : undefined
+                      }]);
+                      
+                      setExpressCounterSelectedProductId(null);
+                      setExpressCounterProductQuantity(1);
+                      setExpressCounterSelectedSubProducts([]);
+                      showToast(`${product.name} agregado`, 'success');
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+                >
+                  Agregar al Carrito
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Carrito */}
+          {expressCounterItems.length > 0 && (
+            <div className="space-y-2 pt-4 border-t">
+              <h3 className="text-lg font-semibold text-gray-800">Carrito</h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {expressCounterItems.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-800">{item.name} x{item.quantity}</div>
+                      {item.subProducts && item.subProducts.length > 0 && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          + {item.subProducts.map(sp => sp.name).join(', ')}
+                        </div>
+                      )}
+                      <div className="text-sm font-semibold text-primary-600 mt-1">
+                        ${(item.price * item.quantity).toFixed(2)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setExpressCounterItems(expressCounterItems.filter((_, i) => i !== index));
+                      }}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-2 border-t">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-lg font-semibold text-gray-800">Total:</span>
+                  <span className="text-2xl font-bold text-primary-600">
+                    ${expressCounterItems.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Método de pago */}
+          {expressCounterItems.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Método de Pago
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {paymentMethods.map((method) => (
+                  <button
+                    key={method.id}
+                    onClick={() => setExpressCounterPaymentMethod(method.name)}
+                    className={`p-3 border-2 rounded-lg text-center transition-all ${
+                      expressCounterPaymentMethod === method.name
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">{method.name}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Botones de acción */}
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              onClick={() => {
+                setIsExpressCounterModalOpen(false);
+                setExpressCounterItems([]);
+                setExpressCounterSelectedProductId(null);
+                setExpressCounterSelectedCategoryId(null);
+                setExpressCounterProductQuantity(1);
+                setExpressCounterProductSubProducts([]);
+                setExpressCounterSelectedSubProducts([]);
+                setExpressCounterCustomerName('');
+                setExpressCounterPaymentMethod('cash');
+              }}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={async () => {
+                if (expressCounterItems.length === 0) {
+                  showToast('Agrega al menos un producto', 'error');
+                  return;
+                }
+
+                try {
+                  setIsCreatingExpressOrder(true);
+                  const total = expressCounterItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                  
+                  const response = await api.createExpressCounterOrder({
+                    customerName: expressCounterCustomerName || 'Mostrador Express',
+                    items: expressCounterItems,
+                    paymentMethod: expressCounterPaymentMethod,
+                    total: total
+                  });
+
+                  showToast(`Venta de Mostrador Express #${response.id} registrada exitosamente`, 'success');
+                  
+                  // Limpiar el formulario
+                  setExpressCounterItems([]);
+                  setExpressCounterSelectedProductId(null);
+                  setExpressCounterSelectedCategoryId(null);
+                  setExpressCounterProductQuantity(1);
+                  setExpressCounterProductSubProducts([]);
+                  setExpressCounterSelectedSubProducts([]);
+                  setExpressCounterCustomerName('');
+                  setExpressCounterPaymentMethod('cash');
+                  
+                  setIsExpressCounterModalOpen(false);
+                } catch (error: any) {
+                  showToast(error.message || 'Error al registrar la venta', 'error');
+                } finally {
+                  setIsCreatingExpressOrder(false);
+                }
+              }}
+              disabled={isCreatingExpressOrder || expressCounterItems.length === 0}
+              className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isCreatingExpressOrder ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <DollarSign size={18} />
+                  Registrar Venta
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* POS Waiting Modal - z-index alto para estar por encima de otros modales */}
       {isPOSWaitingModalOpen && (

@@ -259,28 +259,62 @@ export default function CustomerOrderPage() {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache',
           },
-        }).then(res => {
-          if (!res.ok) throw new Error('Error al cargar productos');
+        }).then(async (res) => {
+          if (!res.ok) {
+            if (res.status === 401) {
+              // Si es 401, limpiar tokens y redirigir
+              localStorage.removeItem('customer_token');
+              localStorage.removeItem('customer_user');
+              navigate('/clientes/login');
+              throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
+            }
+            throw new Error('Error al cargar productos');
+          }
           return res.json();
-        }).catch(() => []),
+        }).catch((error) => {
+          console.error('Error loading products:', error);
+          return [];
+        }),
         fetch('/api/categories', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-        }).then(res => {
-          if (!res.ok) throw new Error('Error al cargar categorías');
+        }).then(async (res) => {
+          if (!res.ok) {
+            if (res.status === 401) {
+              localStorage.removeItem('customer_token');
+              localStorage.removeItem('customer_user');
+              navigate('/clientes/login');
+              throw new Error('Sesión expirada');
+            }
+            throw new Error('Error al cargar categorías');
+          }
           return res.json();
-        }).catch(() => []),
+        }).catch((error) => {
+          console.error('Error loading categories:', error);
+          return [];
+        }),
         fetch('/api/orders/payment-methods', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-        }).then(res => {
-          if (!res.ok) throw new Error('Error al cargar métodos de pago');
+        }).then(async (res) => {
+          if (!res.ok) {
+            if (res.status === 401) {
+              localStorage.removeItem('customer_token');
+              localStorage.removeItem('customer_user');
+              navigate('/clientes/login');
+              throw new Error('Sesión expirada');
+            }
+            throw new Error('Error al cargar métodos de pago');
+          }
           return res.json();
-        }).catch(() => []),
+        }).catch((error) => {
+          console.error('Error loading payment methods:', error);
+          return [];
+        }),
       ]);
       
       const productsList = Array.isArray(productsData) ? productsData : [];
@@ -339,7 +373,10 @@ export default function CustomerOrderPage() {
   const loadAvailableDeliveryPersons = async () => {
     try {
       const token = localStorage.getItem('customer_token');
-      if (!token) return;
+      if (!token) {
+        setAvailableDeliveryPersons([]);
+        return;
+      }
 
       const response = await fetch('/api/orders/available-delivery-persons', {
         headers: {
@@ -351,7 +388,10 @@ export default function CustomerOrderPage() {
       if (response.ok) {
         const deliveryPersons = await response.json();
         setAvailableDeliveryPersons(Array.isArray(deliveryPersons) ? deliveryPersons : []);
+        console.log('Repartidores disponibles cargados:', deliveryPersons.length);
       } else {
+        const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
+        console.error('Error al cargar repartidores disponibles:', response.status, errorData);
         setAvailableDeliveryPersons([]);
       }
     } catch (error) {
@@ -415,11 +455,8 @@ export default function CustomerOrderPage() {
       return;
     }
 
-    // Validar que haya repartidores disponibles si no se seleccionó uno
-    if (availableDeliveryPersons.length === 0 && !selectedDeliveryPersonId) {
-      showToast('No hay repartidores disponibles en este momento. Por favor, intenta más tarde.', 'error');
-      return;
-    }
+    // Nota: No validamos que haya repartidores disponibles porque el pedido se puede crear
+    // sin repartidor y se asignará uno desde cocina cuando esté disponible
 
     // Validar comprobante si es transferencia
     const isTransfer = selectedPaymentMethod.toLowerCase().includes('transfer') || 
@@ -600,7 +637,7 @@ export default function CustomerOrderPage() {
               <ShoppingCart size={24} className="text-primary-500 sm:w-7 sm:h-7" />
               <span className="whitespace-nowrap">Realizar Pedido</span>
             </h1>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center justify-between w-full sm:w-auto gap-2">
               <button
                 onClick={openRestaurantsModal}
                 className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm sm:text-base whitespace-nowrap"

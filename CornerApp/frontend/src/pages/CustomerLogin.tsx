@@ -40,12 +40,46 @@ export default function CustomerLoginPage() {
 
       const data = await response.json();
       
+      // Validar que se recibió el token y los datos del usuario
+      if (!data.token || !data.user) {
+        throw new Error('Error: No se recibieron los datos de autenticación');
+      }
+      
       // Guardar token y datos del cliente
+      console.log('CustomerLogin: Guardando token y usuario', {
+        hasToken: !!data.token,
+        hasUser: !!data.user,
+        userId: data.user?.id
+      });
+      
       localStorage.setItem('customer_token', data.token);
       localStorage.setItem('customer_user', JSON.stringify(data.user));
       
+      // Verificar que se guardaron correctamente
+      const savedToken = localStorage.getItem('customer_token');
+      const savedUser = localStorage.getItem('customer_user');
+      
+      console.log('CustomerLogin: Verificando guardado', {
+        savedToken: !!savedToken,
+        savedUser: !!savedUser,
+        tokenLength: savedToken?.length || 0
+      });
+      
+      if (!savedToken || !savedUser) {
+        console.error('CustomerLogin: Error - no se guardaron los datos');
+        throw new Error('Error al guardar los datos de sesión');
+      }
+      
       showToast('¡Bienvenido!', 'success');
-      navigate('/clientes/pedidos');
+      
+      // Pequeño delay para asegurar que el localStorage se guarde correctamente
+      // Usar requestAnimationFrame para asegurar que el navegador haya procesado el localStorage
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          console.log('CustomerLogin: Navegando a /clientes/pedidos');
+          navigate('/clientes/pedidos', { replace: true });
+        }, 100);
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al iniciar sesión';
       showToast(errorMessage, 'error');

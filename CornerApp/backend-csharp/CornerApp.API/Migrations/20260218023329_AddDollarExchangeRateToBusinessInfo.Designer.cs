@@ -4,6 +4,7 @@ using CornerApp.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CornerApp.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260218023329_AddDollarExchangeRateToBusinessInfo")]
+    partial class AddDollarExchangeRateToBusinessInfo
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -120,7 +123,7 @@ namespace CornerApp.API.Migrations
                         .HasColumnType("varchar(500)");
 
                     b.Property<decimal?>("DollarExchangeRate")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(65,30)");
 
                     b.Property<string>("Email")
                         .HasMaxLength(100)
@@ -153,7 +156,7 @@ namespace CornerApp.API.Migrations
                         .HasColumnType("double");
 
                     b.Property<decimal>("MinimumOrderAmount")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("decimal(65,30)");
 
                     b.Property<string>("OpeningTime")
                         .HasMaxLength(5)
@@ -168,9 +171,6 @@ namespace CornerApp.API.Migrations
                         .HasColumnType("varchar(20)");
 
                     b.Property<int>("PointsPerOrder")
-                        .HasColumnType("int");
-
-                    b.Property<int>("RestaurantId")
                         .HasColumnType("int");
 
                     b.Property<double?>("StoreLatitude")
@@ -196,9 +196,6 @@ namespace CornerApp.API.Migrations
                         .HasColumnType("varchar(20)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("RestaurantId")
-                        .IsUnique();
 
                     b.ToTable("BusinessInfo");
                 });
@@ -991,6 +988,9 @@ namespace CornerApp.API.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
 
+                    b.Property<int?>("BusinessInfoId")
+                        .HasColumnType("int");
+
                     b.Property<string>("ClientAppId")
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)");
@@ -1042,6 +1042,8 @@ namespace CornerApp.API.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BusinessInfoId");
 
                     b.HasIndex("DeliveryZoneConfigId");
 
@@ -1340,17 +1342,6 @@ namespace CornerApp.API.Migrations
                     b.Navigation("Restaurant");
                 });
 
-            modelBuilder.Entity("CornerApp.API.Models.BusinessInfo", b =>
-                {
-                    b.HasOne("CornerApp.API.Models.Restaurant", "Restaurant")
-                        .WithMany("BusinessInfo")
-                        .HasForeignKey("RestaurantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Restaurant");
-                });
-
             modelBuilder.Entity("CornerApp.API.Models.CashRegister", b =>
                 {
                     b.HasOne("CornerApp.API.Models.Restaurant", "Restaurant")
@@ -1530,6 +1521,10 @@ namespace CornerApp.API.Migrations
 
             modelBuilder.Entity("CornerApp.API.Models.Restaurant", b =>
                 {
+                    b.HasOne("CornerApp.API.Models.BusinessInfo", "BusinessInfo")
+                        .WithMany()
+                        .HasForeignKey("BusinessInfoId");
+
                     b.HasOne("CornerApp.API.Models.DeliveryZoneConfig", "DeliveryZoneConfig")
                         .WithMany()
                         .HasForeignKey("DeliveryZoneConfigId");
@@ -1537,6 +1532,8 @@ namespace CornerApp.API.Migrations
                     b.HasOne("CornerApp.API.Models.EmailConfig", "EmailConfig")
                         .WithMany()
                         .HasForeignKey("EmailConfigId");
+
+                    b.Navigation("BusinessInfo");
 
                     b.Navigation("DeliveryZoneConfig");
 
@@ -1611,8 +1608,6 @@ namespace CornerApp.API.Migrations
             modelBuilder.Entity("CornerApp.API.Models.Restaurant", b =>
                 {
                     b.Navigation("Admins");
-
-                    b.Navigation("BusinessInfo");
 
                     b.Navigation("CashRegisters");
 
