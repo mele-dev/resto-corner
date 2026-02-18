@@ -333,32 +333,32 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Login normal de admin - requiere restaurantId
-        if (!request.RestaurantId.HasValue || request.RestaurantId.Value <= 0)
+        // Login normal de admin - requiere RestaurantIdentifier (RUT)
+        if (string.IsNullOrWhiteSpace(request.RestaurantIdentifier))
         {
-            return BadRequest(new { error = "ID de restaurante es requerido para usuarios normales" });
+            return BadRequest(new { error = "RUT del restaurante es requerido para usuarios normales" });
         }
 
-        // Verificar que el restaurante existe y está activo
+        // Verificar que el restaurante existe y está activo por su Identifier (RUT)
         var restaurant = await _context.Restaurants
-            .FirstOrDefaultAsync(r => r.Id == request.RestaurantId.Value && r.IsActive);
+            .FirstOrDefaultAsync(r => r.Identifier.ToLower() == request.RestaurantIdentifier.Trim().ToLower() && r.IsActive);
 
         if (restaurant == null)
         {
-            _logger.LogWarning("Intento de login admin fallido: Restaurante no encontrado o inactivo - RestaurantId: {RestaurantId}", request.RestaurantId);
-            return Unauthorized(new { error = "Restaurante no encontrado o inactivo" });
+            _logger.LogWarning("Intento de login admin fallido: Restaurante no encontrado o inactivo - RestaurantIdentifier: {RestaurantIdentifier}", request.RestaurantIdentifier);
+            return Unauthorized(new { error = "Restaurante no encontrado o inactivo. Verifique el RUT ingresado." });
         }
 
-        // Buscar admin por restaurantId y username (case-insensitive)
+        // Buscar admin por restaurantId (obtenido del Identifier) y username (case-insensitive)
         var admin = await _context.Admins
             .Include(a => a.Restaurant)
-            .FirstOrDefaultAsync(a => a.RestaurantId == request.RestaurantId.Value && 
+            .FirstOrDefaultAsync(a => a.RestaurantId == restaurant.Id && 
                                      a.Username.ToLower() == request.Username.ToLower());
 
         if (admin == null)
         {
-            _logger.LogWarning("Intento de login admin fallido: Usuario no encontrado - RestaurantId: {RestaurantId}, Username: {Username}", 
-                request.RestaurantId, request.Username);
+            _logger.LogWarning("Intento de login admin fallido: Usuario no encontrado - RestaurantIdentifier: {RestaurantIdentifier}, Username: {Username}", 
+                request.RestaurantIdentifier, request.Username);
             return Unauthorized(new { error = "Usuario o contraseña incorrectos" });
         }
 

@@ -38,7 +38,7 @@ public class UpdateProfileRequest
 /// </summary>
 public class AdminLoginRequest
 {
-    public int? RestaurantId { get; set; } // Opcional para superadmin
+    public string? RestaurantIdentifier { get; set; } // RUT/Identificador del restaurante (opcional para superadmin)
     
     [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El usuario es requerido")]
     public string Username { get; set; } = string.Empty;

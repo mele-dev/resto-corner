@@ -14,7 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (restaurantId: number | null, username: string, password: string) => Promise<void>;
+  login: (restaurantIdentifier: string | null, username: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   loading: boolean;
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (restaurantId: number | null, username: string, password: string) => {
+  const login = async (restaurantIdentifier: string | null, username: string, password: string) => {
     try {
       const response = await fetch('/api/auth/admin/login', {
         method: 'POST',
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          restaurantId: restaurantId || undefined, 
+          restaurantIdentifier: restaurantIdentifier || undefined, 
           username, 
           password 
         }),

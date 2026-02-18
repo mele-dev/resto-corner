@@ -3,14 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast/ToastContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown, Utensils } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { LogIn, Lock, User, ChefHat, ShoppingBag, Truck, Crown, ArrowLeft } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
 import Modal from '../components/Modal/Modal';
 
 export default function LoginPage() {
   const { t } = useLanguage();
-  const [restaurantId, setRestaurantId] = useState('');
+  const [restaurantIdentifier, setRestaurantIdentifier] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,24 +27,17 @@ export default function LoginPage() {
       return;
     }
 
-    // Si no hay restaurantId, verificar si es superadmin
-    if (!restaurantId) {
+    // Si no hay restaurantIdentifier, verificar si es superadmin
+    if (!restaurantIdentifier || restaurantIdentifier.trim() === '') {
       if (username.toLowerCase() !== 'admin') {
-        showToast(t('login.requiredRestaurantId'), 'error');
-        return;
-      }
-    } else {
-      const restaurantIdNum = parseInt(restaurantId, 10);
-      if (isNaN(restaurantIdNum) || restaurantIdNum <= 0) {
-        showToast(t('login.invalidRestaurantId'), 'error');
+        showToast('RUT del restaurante es requerido', 'error');
         return;
       }
     }
 
     try {
       setLoading(true);
-      const restaurantIdNum = restaurantId ? parseInt(restaurantId, 10) : null;
-      await login(restaurantIdNum, username, password);
+      await login(restaurantIdentifier.trim() || null, username, password);
       
       // Verificar el rol del usuario después del login
       const savedUser = localStorage.getItem('admin_user');
@@ -178,25 +170,24 @@ export default function LoginPage() {
 
           {/* Formulario */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* ID Restaurante */}
+            {/* RUT Restaurante */}
             <div>
-              <label htmlFor="restaurantId" className="block text-sm font-semibold text-white mb-2">
-                {t('login.restaurantId')} <span className="text-gray-400 text-xs">({t('common.optional')} {t('login.superAdminLogin')})</span>
+              <label htmlFor="restaurantIdentifier" className="block text-sm font-semibold text-white mb-2">
+                RUT del Restaurante <span className="text-gray-400 text-xs">({t('common.optional')} {t('login.superAdminLogin')})</span>
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <User size={20} className="text-gray-400 group-focus-within:text-primary-500 transition-colors" />
                 </div>
                 <input
-                  id="restaurantId"
-                  type="number"
-                  value={restaurantId}
-                  onChange={(e) => setRestaurantId(e.target.value)}
+                  id="restaurantIdentifier"
+                  type="text"
+                  value={restaurantIdentifier}
+                  onChange={(e) => setRestaurantIdentifier(e.target.value)}
                   className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
-                  placeholder={t('login.restaurantId')}
+                  placeholder="Ingrese número de RUT"
                   autoComplete="off"
                   disabled={loading}
-                  min="1"
                 />
               </div>
             </div>
@@ -278,26 +269,16 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Link a Login de Mozo */}
+          {/* Botón Volver al Home */}
           <div className="mt-4">
-            <Link
-              to="/mozo/login"
-              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
             >
-              <Utensils size={18} />
-              <span>Acceso Mozos</span>
-            </Link>
-          </div>
-
-          {/* Link a Login de Clientes */}
-          <div className="mt-4">
-            <Link
-              to="/clientes/login"
-              className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-xl hover:from-blue-600 hover:to-cyan-700 transition-all font-semibold text-sm shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <ShoppingBag size={18} />
-              <span>Acceso Clientes</span>
-            </Link>
+              <ArrowLeft size={18} />
+              <span>Volver al Inicio</span>
+            </button>
           </div>
 
           {/* Footer */}
