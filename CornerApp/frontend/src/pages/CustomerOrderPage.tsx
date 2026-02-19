@@ -122,7 +122,6 @@ export default function CustomerOrderPage() {
       const response = await fetch(`/api/restaurants/${id}`);
       if (response.ok) {
         const restaurant = await response.json();
-        // Restaurant name loaded successfully
         console.log('Restaurant loaded:', restaurant.name);
       }
     } catch (error) {

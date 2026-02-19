@@ -21,7 +21,7 @@ const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColo
 export default function TablesViewPage() {
   const { user } = useAuth();
   
-  // Verificar directamente en localStorage por si useAuth no se ha actualizado aún
+  // También verificar directamente en localStorage por si useAuth no se ha actualizado aún
   const waiterUser = localStorage.getItem('waiter_user');
   const waiterToken = localStorage.getItem('waiter_token');
   
