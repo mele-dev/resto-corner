@@ -27,7 +27,14 @@ public class CacheHealthCheck : IHealthCheck
             var testKey = $"health_check_{Guid.NewGuid()}";
             var testValue = DateTime.UtcNow.Ticks;
 
-            _cache.Set(testKey, testValue, TimeSpan.FromSeconds(5));
+            // Usar MemoryCacheEntryOptions para especificar el tamaño cuando SizeLimit está configurado
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5),
+                Size = 1 // Tamaño mínimo para el health check
+            };
+            
+            _cache.Set(testKey, testValue, cacheOptions);
             
             if (_cache.TryGetValue(testKey, out long retrievedValue) && retrievedValue == testValue)
             {

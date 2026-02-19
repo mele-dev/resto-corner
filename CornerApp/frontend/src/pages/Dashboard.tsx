@@ -114,7 +114,7 @@ export default function Dashboard() {
   const quickLinks = [
     {
       title: t('dashboard.manageOrders'),
-      description: t('dashboard.manageOrdersDesc'),
+      description: 'Bienvenido a RiDi Express',
       icon: ShoppingCart,
       link: '/admin/orders',
       color: 'from-blue-500 to-blue-600',

@@ -3,7 +3,10 @@
  * Maneja todas las peticiones HTTP al backend
  */
 
-const API_BASE_URL = '';
+// Detectar si estamos accediendo desde ngrok o localmente
+const isNgrok = window.location.hostname.includes('ngrok-free.dev') || window.location.hostname.includes('ngrok.io');
+// URL del backend: ngrok si accedemos desde ngrok, sino usar proxy local
+const API_BASE_URL = isNgrok ? 'https://michele-comfiest-soo.ngrok-free.dev' : '';
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -22,8 +25,8 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, headers = {}, skipAuth = false } = options;
 
-    // Obtener token del localStorage (admin, mozo o repartidor) solo si no se omite la autenticación
-    const token = skipAuth ? null : (localStorage.getItem('admin_token') || localStorage.getItem('waiter_token') || localStorage.getItem('delivery_token'));
+    // Obtener token del localStorage (admin, mozo o cliente) solo si no se omite la autenticación
+    const token = skipAuth ? null : (localStorage.getItem('admin_token') || localStorage.getItem('waiter_token') || localStorage.getItem('customer_token'));
 
     const config: RequestInit = {
       method,
@@ -43,7 +46,6 @@ class ApiClient {
     if (!response.ok) {
       // Si es 401 (No autorizado), limpiar tokens y redirigir al login apropiado
       if (response.status === 401) {
-        const isDeliveryRoute = endpoint.includes('/deliveryperson/') || endpoint.includes('/delivery/');
         const isWaiterRoute = endpoint.includes('/waiter/') || window.location.pathname.includes('/mozo');
         localStorage.removeItem('admin_token');
         localStorage.removeItem('admin_user');
@@ -51,9 +53,7 @@ class ApiClient {
         localStorage.removeItem('waiter_user');
         localStorage.removeItem('delivery_token');
         localStorage.removeItem('delivery_user');
-        if (isDeliveryRoute) {
-          window.location.href = '/delivery/login';
-        } else if (isWaiterRoute) {
+        if (isWaiterRoute) {
           window.location.href = '/mozo/login';
         } else {
           window.location.href = '/login';
@@ -134,8 +134,28 @@ class ApiClient {
     return this.request<Order>(`/api/orders/${id}`);
   }
 
+  // Obtener pedidos del cliente autenticado
+  async getMyOrders(params?: { page?: number; pageSize?: number }) {
+    const query = params ? new URLSearchParams(
+      Object.entries(params)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<{ data: Order[]; totalCount: number; page: number; pageSize: number; totalPages: number }>(`/api/orders/my-orders${query ? `?${query}` : ''}`);
+  }
+
   async createOrder(data: CreateOrderRequest) {
     return this.request<Order>('/admin/api/orders/create', { method: 'POST', body: data });
+  }
+
+  async rejectOrderItem(orderId: number, itemId: number, isRejected: boolean) {
+    return this.request<{ success: boolean; message: string; order: any; item: any }>(
+      `/api/orders/${orderId}/items/${itemId}/reject`,
+      {
+        method: 'PATCH',
+        body: { isRejected },
+      }
+    );
   }
 
   async updateOrderStatus(id: number, status: string, deliveryPersonId?: number) {
@@ -259,7 +279,8 @@ class ApiClient {
       sTransactionId?: string; 
       transactionDateTime?: string; 
       response?: string 
-    }
+    },
+    receiptImage?: string
   ) {
     // Primero actualizar el método de pago del pedido
     const paymentMethodBody: any = { paymentMethod };
@@ -270,6 +291,13 @@ class ApiClient {
       paymentMethodBody.POSTransactionIdString = posInfo.sTransactionId;
       paymentMethodBody.POSTransactionDateTime = posInfo.transactionDateTime;
       paymentMethodBody.POSResponse = posInfo.response;
+    }
+    
+    // Si es transferencia y hay comprobante, incluirla
+    if ((paymentMethod.toLowerCase().includes('transfer') || 
+         paymentMethod.toLowerCase().includes('transferencia')) && 
+        receiptImage) {
+      paymentMethodBody.ReceiptImage = receiptImage;
     }
     
     await this.request<Order>(`/admin/api/orders/${orderId}/payment-method`, {
@@ -593,13 +621,37 @@ class ApiClient {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/admin/api/products/upload-image', {
+    // Obtener token del localStorage (admin, mozo o cliente)
+    const token = localStorage.getItem('admin_token') || localStorage.getItem('waiter_token') || localStorage.getItem('customer_token');
+
+    const response = await fetch(`${this.baseUrl}/admin/api/products/upload-image`, {
       method: 'POST',
+      headers: {
+        // No establecer Content-Type para FormData, el navegador lo hace automáticamente con el boundary correcto
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
       body: formData,
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_user');
+        localStorage.removeItem('waiter_token');
+        localStorage.removeItem('waiter_user');
+        window.location.href = '/login';
+        throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
+      }
+      
+      let errorData: any = {};
+      try {
+        const text = await response.text();
+        if (text) {
+          errorData = JSON.parse(text);
+        }
+      } catch (e) {
+        errorData = { error: response.statusText };
+      }
       throw new Error(errorData.error || 'Error al subir imagen');
     }
 
@@ -608,7 +660,12 @@ class ApiClient {
 
   // SubProducts
   async getSubProductsByProduct(productId: number) {
-    return this.request<SubProduct[]>(`/admin/api/subproducts/product/${productId}`);
+    // Si estamos en la sección de mozo, usar el endpoint público
+    const isWaiterRoute = window.location.pathname.includes('/mozo');
+    const endpoint = isWaiterRoute 
+      ? `/admin/api/subproducts/waiter/product/${productId}`
+      : `/admin/api/subproducts/product/${productId}`;
+    return this.request<SubProduct[]>(endpoint, { skipAuth: isWaiterRoute });
   }
 
   async getSubProduct(id: number) {
@@ -684,7 +741,7 @@ class ApiClient {
     });
   }
 
-  async closeDeliveryPersonCashRegister(deliveryPersonId: number, notes?: string) {
+  async closeDeliveryPersonCashRegister(deliveryPersonId: number, notes?: string, actualCashAmount?: number) {
     return this.request<{
       cashRegister: any;
       movements: any[];
@@ -697,7 +754,7 @@ class ApiClient {
       };
     }>(`/admin/api/delivery-persons/${deliveryPersonId}/cash-register/close`, {
       method: 'POST',
-      body: { notes },
+      body: { notes, actualCashAmount },
     });
   }
 
@@ -799,6 +856,10 @@ class ApiClient {
 
   async createOrderFromTableForWaiter(tableId: number, data: { items: Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>; paymentMethod?: string; comments?: string }) {
     return this.request<{ id: number; message: string; order: Order; table: Table }>(`/api/tables/waiter/${tableId}/create-order`, { method: 'POST', body: data, skipAuth: true });
+  }
+
+  async createExpressCounterOrder(data: { customerName: string; items: Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>; paymentMethod: string; total: number }) {
+    return this.request<{ id: number; message: string; order: Order }>('/api/orders/express-counter', { method: 'POST', body: data });
   }
 
   // Spaces
@@ -941,42 +1002,13 @@ class ApiClient {
     });
   }
 
-  async closeCashRegister(notes?: string) {
+  async closeCashRegister(notes?: string, actualCashAmount?: number) {
     return this.request<any>('/admin/api/cash-register/close', {
       method: 'POST',
-      body: { notes },
+      body: { notes, actualCashAmount },
     });
   }
 
-  // Delivery Cash Register (Caja de Repartidor)
-  async getDeliveryCashRegisterStatus() {
-    return this.request<{ isOpen: boolean; cashRegister: any }>('/api/delivery-cash-register/status');
-  }
-
-  async openDeliveryCashRegister() {
-    return this.request<any>('/api/delivery-cash-register/open', {
-      method: 'POST',
-    });
-  }
-
-  async closeDeliveryCashRegister(notes?: string) {
-    return this.request<any>('/api/delivery-cash-register/close', {
-      method: 'POST',
-      body: { notes },
-    });
-  }
-
-  async getDeliveryOrders() {
-    return this.request<Order[]>('/api/delivery-cash-register/orders');
-  }
-
-  // Delivery Cash Register: Actualizar estado de pedido con nota
-  async updateDeliveryCashRegisterOrderStatus(orderId: number, status: string, note?: string) {
-    return this.request<Order>(`/api/delivery-cash-register/orders/${orderId}/status`, {
-      method: 'PATCH',
-      body: { status, note },
-    });
-  }
 
   async getCashRegisterHistory(page: number = 1, pageSize: number = 20) {
     return this.request<{ cashRegisters: any[]; total: number; page: number; pageSize: number; totalPages: number }>(
@@ -992,42 +1024,6 @@ class ApiClient {
     return this.request<any>(`/admin/api/cash-register/${cashRegisterId}/movements`);
   }
 
-  // Delivery Person (Repartidor) endpoints
-  async deliveryPersonLogin(username: string, password: string) {
-    return this.request<{ token: string; deliveryPerson: any }>('/api/deliveryperson/login', {
-      method: 'POST',
-      body: { username, password },
-      skipAuth: true,
-    });
-  }
-
-  async getDeliveryPersonOrders() {
-    return this.request<Order[]>('/api/deliveryperson/orders');
-  }
-
-  async getDeliveryPersonOrder(orderId: number) {
-    return this.request<Order>(`/api/deliveryperson/orders/${orderId}`);
-  }
-
-  async updateDeliveryPersonLocation(orderId: number, latitude: number, longitude: number) {
-    return this.request<any>(`/api/deliveryperson/orders/${orderId}/location`, {
-      method: 'PATCH',
-      body: { latitude, longitude },
-    });
-  }
-
-  async updateDeliveryOrderStatus(orderId: number, status: string) {
-    return this.request<Order>(`/api/deliveryperson/orders/${orderId}/status`, {
-      method: 'PATCH',
-      body: { status },
-    });
-  }
-
-  async verifyDeliveryPersonToken() {
-    return this.request<{ deliveryPerson: any }>('/api/deliveryperson/verify', {
-      method: 'POST',
-    });
-  }
 
   // Admin Users
   async getAdminUsers(search?: string) {
@@ -1076,7 +1072,6 @@ import type {
   PaymentMethod,
   CreatePaymentMethodRequest,
   UpdatePaymentMethodRequest,
-  DashboardStats,
   OrderStatusHistoryItem,
   Customer,
   CreateCustomerRequest,
@@ -1104,11 +1099,6 @@ import type {
   SubProduct,
   CreateSubProductRequest,
   UpdateSubProductRequest,
-  CashRegister,
-  CashRegisterStatus,
-  OpenCashRegisterRequest,
-  CloseCashRegisterRequest,
-  CashRegistersReport,
   UpdateAdminUserRequest,
   CreateAdminUserRequest,
   AdminUser,

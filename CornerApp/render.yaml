@@ -1,0 +1,65 @@
+# Render Blueprint - CornerApp
+# Este archivo define todos los servicios que Render creará automáticamente
+
+services:
+  - type: web
+    name: cornerapp-backend
+    env: docker
+    dockerfilePath: ./backend-csharp/CornerApp.API/Dockerfile
+    dockerContext: ./backend-csharp
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:${PORT}
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: cornerapp-mysql
+          property: connectionString
+      - key: ConnectionStrings__Redis
+        fromService:
+          type: redis
+          name: cornerapp-redis
+          property: connectionString
+      - key: Redis__InstanceName
+        value: "CornerApp:"
+      - key: Redis__Enabled
+        value: "true"
+      - key: RabbitMQ__Enabled
+        value: "false"
+      - key: JWT_SECRET_KEY
+        value: CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARACTERS_LONG
+      - key: JWT_ISSUER
+        value: CornerApp
+      - key: JWT_AUDIENCE
+        value: CornerApp
+      - key: Cors__AllowedOrigins__0
+        value: https://cornerapp-frontend.onrender.com
+      - key: EnableSwagger
+        value: "false"
+
+  - type: web
+    name: cornerapp-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: starter
+    region: oregon
+    healthCheckPath: /nginx-health
+    envVars:
+      - key: VITE_API_URL
+        value: https://cornerapp-backend.onrender.com
+
+databases:
+  - name: cornerapp-mysql
+    databaseName: cornerappdb
+    user: cornerapp_user
+    plan: starter
+    region: oregon
+
+  - name: cornerapp-redis
+    plan: starter
+    region: oregon

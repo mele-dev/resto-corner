@@ -68,14 +68,17 @@ public class CashRegisterController : ControllerBase
 
             // Calcular totales desde los pedidos de ESTA sesión de caja específica
             // Solo contar pedidos creados DESPUÉS de que se abrió esta caja
+            // Incluir pedidos archivados que fueron completados durante esta sesión (fueron cobrados)
+            // Esto debe coincidir con la lógica del endpoint CloseCashRegister
             List<Order> orders = new();
             try
             {
                 orders = await _context.Orders
                     .Where(o => o.RestaurantId == restaurantId
                         && o.CreatedAt >= openCashRegister.OpenedAt
-                        && o.Status == OrderConstants.STATUS_COMPLETED
-                        && !o.IsArchived)
+                        && o.Status == OrderConstants.STATUS_COMPLETED)
+                    // Removido: && !o.IsArchived - Ahora incluimos pedidos archivados que fueron cobrados
+                    // para que coincida con el cálculo al cerrar la caja
                     .ToListAsync();
             }
             catch (Exception dbEx)
@@ -276,13 +279,33 @@ public class CashRegisterController : ControllerBase
             var totalTransfer = orders.Where(o => o.PaymentMethod != null && o.PaymentMethod.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower())
                 .Sum(o => o.Total);
 
-            // Calcular monto final (inicial + ventas en efectivo)
-            var finalAmount = cashRegister.InitialAmount + totalCash;
+            // Calcular monto final esperado (inicial + ventas en efectivo)
+            var expectedFinalAmount = cashRegister.InitialAmount + totalCash;
+
+            // Validar que el monto en efectivo ingresado coincida con el esperado
+            if (request?.ActualCashAmount.HasValue == true)
+            {
+                var actualCashAmount = request.ActualCashAmount.Value;
+                if (Math.Abs(actualCashAmount - expectedFinalAmount) > 0.01m) // Tolerancia de 1 centavo
+                {
+                    return BadRequest(new
+                    {
+                        error = "El monto en efectivo ingresado no coincide con el esperado",
+                        expectedAmount = expectedFinalAmount,
+                        actualAmount = actualCashAmount,
+                        difference = actualCashAmount - expectedFinalAmount
+                    });
+                }
+            }
+            else
+            {
+                return BadRequest(new { error = "Debe ingresar el monto en efectivo que tiene en caja" });
+            }
 
             // Actualizar caja
             cashRegister.ClosedAt = DateTime.UtcNow;
             cashRegister.IsOpen = false;
-            cashRegister.FinalAmount = finalAmount;
+            cashRegister.FinalAmount = request.ActualCashAmount.Value;
             cashRegister.TotalSales = totalSales;
             cashRegister.TotalCash = totalCash;
             cashRegister.TotalPOS = totalPOS;
@@ -294,7 +317,7 @@ public class CashRegisterController : ControllerBase
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Caja cerrada: ID {CashRegisterId}, Total ventas: {TotalSales}, Monto final: {FinalAmount}, Usuario: {User}",
-                cashRegister.Id, totalSales, finalAmount, cashRegister.ClosedBy);
+                cashRegister.Id, totalSales, cashRegister.FinalAmount, cashRegister.ClosedBy);
 
             return Ok(cashRegister);
         }
@@ -384,6 +407,7 @@ public class CashRegisterController : ControllerBase
                     paymentMethod = o.PaymentMethod,
                     total = o.Total,
                     createdAt = o.CreatedAt,
+                    comments = o.Comments,
                     itemsCount = o.Items.Count,
                     // Información de transacción POS (si aplica)
                     posTransactionId = o.POSTransactionId,
@@ -417,6 +441,41 @@ public class CashRegisterController : ControllerBase
                 })
                 .ToList();
 
+            // Filtrar pedidos de mostrador express
+            var expressCounterOrders = orders.Where(o => 
+                !string.IsNullOrEmpty(o.comments) && 
+                o.comments.Contains("MOSTRADOR EXPRESS", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var totalExpressCounter = expressCounterOrders.Sum(o => o.total);
+            var expressCounterCount = expressCounterOrders.Count;
+
+            // Agrupar ventas de mostrador express por día y hora
+            var expressCounterByDayHour = expressCounterOrders
+                .GroupBy(o => new
+                {
+                    Date = o.createdAt.Date,
+                    Hour = o.createdAt.Hour
+                })
+                .Select(g => new
+                {
+                    date = g.Key.Date.ToString("yyyy-MM-dd"),
+                    hour = g.Key.Hour,
+                    count = g.Count(),
+                    total = g.Sum(o => o.total),
+                    orders = g.Select(o => new
+                    {
+                        id = o.id,
+                        createdAt = o.createdAt,
+                        customerName = o.customerName,
+                        total = o.total,
+                        paymentMethod = o.paymentMethod
+                    }).OrderBy(o => o.createdAt).ToList()
+                })
+                .OrderBy(x => x.date)
+                .ThenBy(x => x.hour)
+                .ToList();
+
             return Ok(new
             {
                 cashRegister = new
@@ -439,8 +498,11 @@ public class CashRegisterController : ControllerBase
                     totalCash = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_CASH.ToLower()).Sum(o => o.total),
                     totalPOS = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_POS.ToLower()).Sum(o => o.total),
                     totalTransfer = orders.Where(o => o.paymentMethod?.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower()).Sum(o => o.total),
-                    byPaymentMethod
-                }
+                    byPaymentMethod,
+                    expressCounterTotal = totalExpressCounter,
+                    expressCounterCount = expressCounterCount
+                },
+                expressCounterByDayHour = expressCounterByDayHour
             });
         }
         catch (Exception ex)
@@ -460,4 +522,5 @@ public class OpenCashRegisterRequest
 public class CloseCashRegisterRequest
 {
     public string? Notes { get; set; }
+    public decimal? ActualCashAmount { get; set; }
 }

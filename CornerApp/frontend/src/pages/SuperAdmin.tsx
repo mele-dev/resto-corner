@@ -38,6 +38,7 @@ export default function SuperAdminPage() {
     adminPassword: '',
     adminEmail: '',
   });
+  const [nextRestaurantId, setNextRestaurantId] = useState<number | null>(null);
 
   // Verificar que el usuario sea SuperAdmin
   if (!user || user.role !== 'SuperAdmin') {
@@ -46,7 +47,25 @@ export default function SuperAdminPage() {
 
   useEffect(() => {
     fetchRestaurants();
+    fetchNextRestaurantId();
   }, []);
+
+  const fetchNextRestaurantId = async () => {
+    try {
+      const response = await fetch('/api/restaurants/next-id', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setNextRestaurantId(data.nextId);
+      }
+    } catch (error) {
+      console.error('Error al obtener próximo ID:', error);
+    }
+  };
 
   const fetchRestaurants = async () => {
     try {
@@ -73,8 +92,8 @@ export default function SuperAdminPage() {
 
   const handleCreate = async () => {
     try {
-      if (!formData.name || !formData.identifier) {
-        showToast('Nombre e identificador son requeridos', 'error');
+      if (!formData.name) {
+        showToast('El nombre del restaurante es requerido', 'error');
         return;
       }
 
@@ -101,7 +120,7 @@ export default function SuperAdminPage() {
       setIsCreateModalOpen(false);
       setFormData({ 
         name: '', 
-        identifier: '', 
+        identifier: '',
         address: '', 
         phone: '', 
         email: '',
@@ -111,6 +130,7 @@ export default function SuperAdminPage() {
         adminEmail: '',
       });
       fetchRestaurants();
+      fetchNextRestaurantId(); // Actualizar el próximo ID
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al crear restaurante';
       showToast(errorMessage, 'error');
@@ -124,7 +144,7 @@ export default function SuperAdminPage() {
       // Solo enviar datos del restaurante, no del admin
       const restaurantData = {
         name: formData.name,
-        identifier: formData.identifier,
+        identifier: formData.identifier || undefined, // Enviar undefined si está vacío para que se genere automáticamente
         address: formData.address,
         phone: formData.phone,
         email: formData.email,
@@ -149,7 +169,7 @@ export default function SuperAdminPage() {
       setSelectedRestaurant(null);
       setFormData({ 
         name: '', 
-        identifier: '', 
+        identifier: '',
         address: '', 
         phone: '', 
         email: '',
@@ -193,7 +213,7 @@ export default function SuperAdminPage() {
     setSelectedRestaurant(restaurant);
     setFormData({
       name: restaurant.name,
-      identifier: restaurant.identifier,
+      identifier: restaurant.identifier || '',
       address: restaurant.address || '',
       phone: restaurant.phone || '',
       email: restaurant.email || '',
@@ -340,7 +360,7 @@ export default function SuperAdminPage() {
                   setIsCreateModalOpen(false);
                   setFormData({ 
                     name: '', 
-                    identifier: '', 
+                    identifier: '',
                     address: '', 
                     phone: '', 
                     email: '',
@@ -360,6 +380,13 @@ export default function SuperAdminPage() {
               <div className="border-b pb-4 mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Datos del Restaurante</h3>
                 <div className="space-y-4">
+                  {nextRestaurantId !== null && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                      <p className="text-sm text-blue-800">
+                        <span className="font-semibold">ID que se asignará:</span> <span className="text-lg font-bold">{nextRestaurantId}</span>
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Nombre <span className="text-red-500">*</span>
@@ -374,16 +401,16 @@ export default function SuperAdminPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Identificador <span className="text-red-500">*</span>
+                      Identificador (RUT)
                     </label>
                     <input
                       type="text"
                       value={formData.identifier}
-                      onChange={(e) => setFormData({ ...formData, identifier: e.target.value.toLowerCase() })}
+                      onChange={(e) => setFormData({ ...formData, identifier: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      placeholder="restaurante1"
+                      placeholder="Ingrese número de RUT"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Usado para login (solo minúsculas, sin espacios)</p>
+                    <p className="text-xs text-gray-500 mt-1">Si no se ingresa, se generará automáticamente basado en el nombre</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
@@ -481,7 +508,7 @@ export default function SuperAdminPage() {
                   setIsCreateModalOpen(false);
                   setFormData({ 
                     name: '', 
-                    identifier: '', 
+                    identifier: '',
                     address: '', 
                     phone: '', 
                     email: '',
@@ -518,7 +545,7 @@ export default function SuperAdminPage() {
                   setSelectedRestaurant(null);
                   setFormData({ 
                     name: '', 
-                    identifier: '', 
+                    identifier: '',
                     address: '', 
                     phone: '', 
                     email: '',
@@ -542,17 +569,6 @@ export default function SuperAdminPage() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Identificador <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.identifier}
-                  onChange={(e) => setFormData({ ...formData, identifier: e.target.value.toLowerCase() })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
@@ -589,7 +605,7 @@ export default function SuperAdminPage() {
                 onClick={() => {
                   setIsEditModalOpen(false);
                   setSelectedRestaurant(null);
-                  setFormData({ name: '', identifier: '', address: '', phone: '', email: '' });
+                  setFormData({ name: '', identifier: '', address: '', phone: '', email: '', adminName: '', adminUsername: '', adminPassword: '', adminEmail: '' });
                 }}
                 className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >

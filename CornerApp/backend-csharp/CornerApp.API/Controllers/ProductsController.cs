@@ -30,23 +30,50 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los productos disponibles del restaurante del usuario autenticado
+    /// Obtiene todos los productos disponibles.
+    /// - Para clientes: devuelve productos de todos los restaurantes que tengan productos disponibles
+    /// - Para admins/empleados: devuelve productos solo del restaurante del usuario autenticado
     /// </summary>
     [HttpGet]
     [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Any, VaryByQueryKeys = new[] { "*" })]
-    public async Task<ActionResult<IEnumerable<Product>>> GetProducts()
+    public async Task<ActionResult<IEnumerable<Product>>> GetProducts([FromQuery] bool? forceRefresh = false)
     {
         try
         {
-            // Obtener RestaurantId del usuario autenticado
-            var restaurantId = RestaurantHelper.GetRestaurantId(User);
+            // Determinar si el usuario es un cliente (no tiene rol) o admin/empleado (tiene rol)
+            var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            var isCustomer = string.IsNullOrEmpty(userRole);
             
-            // Usar una clave de cache específica por restaurante
-            var cacheKey = $"{PRODUCTS_CACHE_KEY}_{restaurantId}";
+            int? restaurantId = null;
+            
+            // Si es admin/empleado, usar el RestaurantId del token para filtrar
+            // Si es cliente, ignorar el RestaurantId y devolver productos de todos los restaurantes
+            if (!isCustomer)
+            {
+                restaurantId = RestaurantHelper.GetRestaurantIdOrNull(User);
+            }
+            // Si es cliente, restaurantId permanece null para obtener productos de todos los restaurantes
+            
+            _logger.LogInformation("GetProducts - Usuario: {UserType}, RestaurantId: {RestaurantId}, TieneRol: {HasRole}", 
+                isCustomer ? "Cliente" : "Admin/Empleado", 
+                restaurantId?.ToString() ?? "null (todos los restaurantes)",
+                !string.IsNullOrEmpty(userRole));
+            
+            // Usar una clave de cache específica por restaurante o "all" si es null
+            var cacheKey = restaurantId.HasValue 
+                ? $"{PRODUCTS_CACHE_KEY}_{restaurantId.Value}" 
+                : $"{PRODUCTS_CACHE_KEY}_all";
+
+            // Si se fuerza la recarga, saltar el cache
+            if (forceRefresh == true)
+            {
+                await _cache.RemoveAsync(cacheKey);
+                _logger.LogInformation("Cache invalidado por forceRefresh=true para clave: {CacheKey}", cacheKey);
+            }
 
             // Intentar obtener desde cache
             var cachedProducts = await _cache.GetAsync<List<object>>(cacheKey);
-            if (cachedProducts != null)
+            if (cachedProducts != null && forceRefresh != true)
             {
                 // Registrar cache hit
                 _metricsService?.RecordCacheHit(cacheKey);
@@ -58,46 +85,62 @@ public class ProductsController : ControllerBase
                 var cachedClientETag = Request.Headers["If-None-Match"].ToString();
                 if (!string.IsNullOrEmpty(cachedClientETag) && ETagHelper.IsETagValid(cachedClientETag, cachedETag))
                 {
-                    _logger.LogInformation("Productos no han cambiado (ETag match desde cache) para restaurante {RestaurantId}: {Count}", restaurantId, cachedProducts.Count);
+                    _logger.LogInformation("Productos no han cambiado (ETag match desde cache) para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", cachedProducts.Count);
                     return StatusCode(304); // Not Modified
                 }
 
                 // Agregar ETag al header de respuesta
                 Response.Headers.Append("ETag", cachedETag);
                 
-                _logger.LogInformation("Productos obtenidos desde cache para restaurante {RestaurantId}: {Count}", restaurantId, cachedProducts.Count);
+                _logger.LogInformation("Productos obtenidos desde cache para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", cachedProducts.Count);
                 return Ok(cachedProducts);
             }
             
             // Registrar cache miss
             _metricsService?.RecordCacheMiss(cacheKey);
 
-            // Obtener productos de la base de datos con categorías, ordenados por DisplayOrder
-            // Usar AsNoTracking para operaciones de solo lectura (mejor performance)
-            // Filtrar por RestaurantId para multi-tenant
-            // IMPORTANTE: Solo devolver productos que tengan RestaurantId válido y coincida con el del usuario
-            var products = await _context.Products
+            // Obtener productos de la base de datos con categorías y restaurantes
+            // Si restaurantId es null (cliente), devolver productos de todos los restaurantes
+            // Si restaurantId tiene valor (admin/empleado), filtrar por ese restaurante
+            var query = _context.Products
                 .AsNoTracking()
                 .Include(p => p.Category)
-                .Where(p => p.IsAvailable && 
-                           p.RestaurantId == restaurantId && 
-                           p.RestaurantId > 0) // Asegurar que RestaurantId sea válido
-                .OrderBy(p => p.DisplayOrder)
+                .Include(p => p.Restaurant)
+                .Where(p => p.IsAvailable && p.RestaurantId > 0)
+                .AsQueryable();
+
+            if (restaurantId.HasValue)
+            {
+                // Filtrar por restaurante específico (solo para admins/empleados)
+                query = query.Where(p => p.RestaurantId == restaurantId.Value);
+            }
+            // Si restaurantId es null (cliente), no filtrar (devolver todos los productos de todos los restaurantes)
+
+            var products = await query
+                .OrderBy(p => p.RestaurantId) // Agrupar por restaurante primero
+                .ThenBy(p => p.DisplayOrder)
                 .ThenBy(p => p.CreatedAt)
                 .ToListAsync();
 
             // Mapear a formato simple para el frontend (evitar referencias circulares)
+            // Incluir restaurantId y restaurantName en la respuesta para que el frontend pueda agrupar por restaurante
             var productsResponse = products.Select(p => new
             {
                 id = p.Id,
                 name = p.Name ?? string.Empty,
                 category = p.Category?.Name ?? string.Empty,
+                categoryId = p.CategoryId,
                 description = p.Description ?? string.Empty,
                 price = p.Price,
-                image = p.Image ?? string.Empty
+                image = p.Image ?? string.Empty,
+                restaurantId = p.RestaurantId, // Incluir restaurantId para agrupar en el frontend
+                restaurantName = p.Restaurant?.Name ?? string.Empty, // Incluir nombre del restaurante
+                isAvailable = p.IsAvailable,
+                displayOrder = p.DisplayOrder,
+                isRecommended = p.IsRecommended
             }).ToList<object>();
 
-            // Guardar en cache con clave específica por restaurante
+            // Guardar en cache con clave específica por restaurante o "all"
             await _cache.SetAsync(cacheKey, productsResponse, CACHE_DURATION);
 
             // Generar ETag
@@ -107,14 +150,17 @@ public class ProductsController : ControllerBase
             var clientETag = Request.Headers["If-None-Match"].ToString();
             if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, etag))
             {
-                _logger.LogInformation("Productos no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId, productsResponse.Count);
+                _logger.LogInformation("Productos no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", productsResponse.Count);
                 return StatusCode(304); // Not Modified
             }
 
             // Agregar ETag al header de respuesta
             Response.Headers.Append("ETag", etag);
             
-            _logger.LogInformation("Productos obtenidos de BD y guardados en cache para restaurante {RestaurantId}: {Count}", restaurantId, productsResponse.Count);
+            _logger.LogInformation("Productos obtenidos de BD y guardados en cache para restaurante {RestaurantId} (Usuario: {UserType}): {Count}", 
+                restaurantId?.ToString() ?? "all", 
+                isCustomer ? "Cliente" : "Admin/Empleado",
+                productsResponse.Count);
             return Ok(productsResponse);
         }
         catch (Exception ex)
@@ -191,9 +237,11 @@ public class ProductsController : ControllerBase
             _context.Products.Add(product);
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de productos para este restaurante
+            // Invalidar cache de productos para este restaurante Y el cache "all" para clientes
             var cacheKey = $"{PRODUCTS_CACHE_KEY}_{restaurantId}";
+            var cacheKeyAll = $"{PRODUCTS_CACHE_KEY}_all";
             await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync(cacheKeyAll);
 
             // Cargar la categoría para la respuesta
             await _context.Entry(product).Reference(p => p.Category).LoadAsync();
@@ -248,9 +296,11 @@ public class ProductsController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de productos para este restaurante
+            // Invalidar cache de productos para este restaurante Y el cache "all" para clientes
             var cacheKey = $"{PRODUCTS_CACHE_KEY}_{restaurantId}";
+            var cacheKeyAll = $"{PRODUCTS_CACHE_KEY}_all";
             await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync(cacheKeyAll);
 
             // Cargar la categoría para la respuesta
             await _context.Entry(product).Reference(p => p.Category).LoadAsync();
@@ -305,9 +355,11 @@ public class ProductsController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de productos para este restaurante
+            // Invalidar cache de productos para este restaurante Y el cache "all" para clientes
             var cacheKey = $"{PRODUCTS_CACHE_KEY}_{restaurantId}";
+            var cacheKeyAll = $"{PRODUCTS_CACHE_KEY}_all";
             await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync(cacheKeyAll);
 
             // Cargar la categoría para la respuesta
             await _context.Entry(product).Reference(p => p.Category).LoadAsync();
@@ -344,9 +396,11 @@ public class ProductsController : ControllerBase
             _context.Products.Remove(product);
             await _context.SaveChangesAsync();
 
-            // Invalidar cache de productos para este restaurante
+            // Invalidar cache de productos para este restaurante Y el cache "all" para clientes
             var cacheKey = $"{PRODUCTS_CACHE_KEY}_{restaurantId}";
+            var cacheKeyAll = $"{PRODUCTS_CACHE_KEY}_all";
             await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync(cacheKeyAll);
 
             _logger.LogInformation("Producto eliminado permanentemente: {ProductId}", id);
             return Ok(new { message = "Producto eliminado permanentemente" });

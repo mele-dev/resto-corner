@@ -41,6 +41,16 @@ public class CreateOrderRequest
     /// </summary>
     public int? TableId { get; set; }
     
+    /// <summary>
+    /// Origen del pedido (ej: "clientesDelivery" para pedidos que requieren repartidor obligatorio)
+    /// </summary>
+    public string? Source { get; set; }
+    
+    /// <summary>
+    /// ID del repartidor asignado al pedido (opcional, puede asignarse al crear el pedido)
+    /// </summary>
+    public int? DeliveryPersonId { get; set; }
+    
     [Required(ErrorMessage = "El pedido debe contener al menos un item")]
     [MinLength(1, ErrorMessage = "El pedido debe contener al menos un item")]
     public List<OrderItemRequest> Items { get; set; } = new();
@@ -79,6 +89,28 @@ public class OrderItemSubProductRequest
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal Price { get; set; }
+}
+
+/// <summary>
+/// DTO para crear un pedido de mostrador express (venta rápida sin cocina)
+/// </summary>
+public class CreateExpressCounterOrderRequest
+{
+    [Required(ErrorMessage = "El nombre del cliente es requerido")]
+    [StringLength(200, MinimumLength = 1, ErrorMessage = "El nombre debe tener entre 1 y 200 caracteres")]
+    public string CustomerName { get; set; } = string.Empty;
+    
+    [Required(ErrorMessage = "El método de pago es requerido")]
+    [StringLength(50, ErrorMessage = "El método de pago no puede exceder 50 caracteres")]
+    public string PaymentMethod { get; set; } = string.Empty;
+    
+    [Required(ErrorMessage = "El total es requerido")]
+    [Range(0.01, 999999.99, ErrorMessage = "El total debe estar entre 0.01 y 999999.99")]
+    public decimal Total { get; set; }
+    
+    [Required(ErrorMessage = "El pedido debe contener al menos un item")]
+    [MinLength(1, ErrorMessage = "El pedido debe contener al menos un item")]
+    public List<OrderItemRequest> Items { get; set; } = new();
 }
 
 /// <summary>
@@ -123,4 +155,12 @@ public class UpdateCustomerLocationRequest
 public class AssignDeliveryPersonRequest
 {
     public int? DeliveryPersonId { get; set; }
+}
+
+/// <summary>
+/// DTO para rechazar o aceptar un item de pedido
+/// </summary>
+public class RejectOrderItemRequest
+{
+    public bool IsRejected { get; set; }
 }

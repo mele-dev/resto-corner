@@ -462,26 +462,50 @@ export default function ReportsPage() {
     try {
       setLoading(true);
       const [revenue, products, statistics, paymentRevenue, comp, hours, delivery, cashRegisters] = await Promise.all([
-        api.getRevenueReport(period),
-        api.getTopProducts(period, 10),
-        api.getReportStats(period),
-        api.getRevenueByPaymentMethod(period),
-        api.getComparison(period),
-        api.getPeakHours(period),
-        api.getDeliveryPerformance(period),
-        api.getCashRegistersReport(period),
+        api.getRevenueReport(period).catch(err => {
+          console.error('Error loading revenue:', err);
+          return null;
+        }),
+        api.getTopProducts(period, 10).catch(err => {
+          console.error('Error loading top products:', err);
+          return [];
+        }),
+        api.getReportStats(period).catch(err => {
+          console.error('Error loading stats:', err);
+          return null;
+        }),
+        api.getRevenueByPaymentMethod(period).catch(err => {
+          console.error('Error loading payment revenue:', err);
+          return [];
+        }),
+        api.getComparison(period).catch(err => {
+          console.error('Error loading comparison:', err);
+          return null;
+        }),
+        api.getPeakHours(period).catch(err => {
+          console.error('Error loading peak hours:', err);
+          return null;
+        }),
+        api.getDeliveryPerformance(period).catch(err => {
+          console.error('Error loading delivery performance:', err);
+          return [];
+        }),
+        api.getCashRegistersReport(period).catch(err => {
+          console.error('Error loading cash registers:', err);
+          return null;
+        }),
       ]);
       setRevenueData(revenue);
-      setTopProducts(products);
+      setTopProducts(Array.isArray(products) ? products : []);
       setStats(statistics);
-      setRevenueByPayment(paymentRevenue);
+      setRevenueByPayment(Array.isArray(paymentRevenue) ? paymentRevenue : []);
       setComparison(comp);
       setPeakHours(hours);
-      setDeliveryPerformance(delivery);
+      setDeliveryPerformance(Array.isArray(delivery) ? delivery : []);
       setCashRegistersReport(cashRegisters);
     } catch (error) {
       showToast('Error al cargar los reportes', 'error');
-      console.error(error);
+      console.error('Error general al cargar reportes:', error);
     } finally {
       setLoading(false);
     }
@@ -560,7 +584,7 @@ export default function ReportsPage() {
     }
   };
 
-  const handlePOSVoid = async (order: any) => {
+  /* const _handlePOSVoid = async (order: any) => {
     if (!order.posTransactionId && !order.posTransactionIdString) {
       showToast('No hay información de transacción POS para este pedido', 'error');
       return;
@@ -661,7 +685,7 @@ export default function ReportsPage() {
     } catch (error: any) {
       showToast(`Error al procesar devolución POS: ${error.message}`, 'error');
     }
-  };
+  }; */
 
   const handleExportExcel = async () => {
     try {
@@ -807,7 +831,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Comparativa cards */}
-      {comparison && (
+      {comparison ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex items-center justify-between mb-2">
@@ -855,6 +879,41 @@ export default function ReportsPage() {
             <p className="text-xs text-gray-400 mt-1">
               vs {formatCurrency(comparison.previous.averageOrder)} anterior
             </p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <DollarSign size={20} className="text-green-600" />
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-1">Ingresos</p>
+            <p className="text-2xl font-bold text-gray-800">$0</p>
+            <p className="text-xs text-gray-400 mt-1">Sin datos disponibles</p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <ShoppingCart size={20} className="text-blue-600" />
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-1">Pedidos</p>
+            <p className="text-2xl font-bold text-gray-800">0</p>
+            <p className="text-xs text-gray-400 mt-1">Sin datos disponibles</p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <TrendingUp size={20} className="text-purple-600" />
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-1">Ticket Promedio</p>
+            <p className="text-2xl font-bold text-gray-800">$0</p>
+            <p className="text-xs text-gray-400 mt-1">Sin datos disponibles</p>
           </div>
         </div>
       )}
@@ -1096,7 +1155,7 @@ export default function ReportsPage() {
           </h2>
           
           {cashRegistersReport.summary && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
               <div className="bg-gray-50 rounded-lg p-4">
                 <div className="text-2xl font-bold text-gray-800">{cashRegistersReport.summary.totalCashRegisters}</div>
                 <div className="text-sm text-gray-500">Total Cajas</div>
@@ -1113,6 +1172,18 @@ export default function ReportsPage() {
                 <div className="text-2xl font-bold text-purple-600">{formatCurrency(cashRegistersReport.summary.totalCash)}</div>
                 <div className="text-sm text-gray-500">Total Efectivo</div>
               </div>
+              {cashRegistersReport.summary.totalExpressCounter !== undefined && (
+                <>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-600">{formatCurrency(cashRegistersReport.summary.totalExpressCounter)}</div>
+                    <div className="text-sm text-gray-500">Mostrador Express</div>
+                  </div>
+                  <div className="bg-orange-100 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-700">{cashRegistersReport.summary.totalExpressCounterCount || 0}</div>
+                    <div className="text-sm text-gray-500">Ventas Express</div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1128,6 +1199,7 @@ export default function ReportsPage() {
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Efectivo</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">POS</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Transferencias</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Mostrador Express</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Final</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
                   </tr>
@@ -1160,6 +1232,18 @@ export default function ReportsPage() {
                       <td className="px-4 py-3 text-right text-sm text-purple-600">
                         {formatCurrency(cashRegister.totalTransfer)}
                       </td>
+                      <td className="px-4 py-3 text-right text-sm text-orange-600 font-medium">
+                        {cashRegister.expressCounterTotal !== undefined ? (
+                          <div>
+                            <div>{formatCurrency(cashRegister.expressCounterTotal)}</div>
+                            {cashRegister.expressCounterCount !== undefined && cashRegister.expressCounterCount > 0 && (
+                              <div className="text-xs text-orange-500">({cashRegister.expressCounterCount} ventas)</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right text-sm font-bold text-primary-600">
                         {formatCurrency(cashRegister.finalAmount)}
                       </td>
@@ -1184,31 +1268,29 @@ export default function ReportsPage() {
       )}
 
       {/* Resumen de estados */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl shadow-md p-4 text-center">
-            <div className="text-3xl font-bold text-gray-800">{stats.totalOrders}</div>
-            <div className="text-sm text-gray-500">Total Pedidos</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 text-center">
-            <div className="text-3xl font-bold text-green-600">{stats.completedOrders}</div>
-            <div className="text-sm text-gray-500">Completados</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 text-center">
-            <div className="text-3xl font-bold text-red-600">{stats.cancelledOrders}</div>
-            <div className="text-sm text-gray-500">Cancelados</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-md p-4 text-center">
-            <div className={`text-3xl font-bold ${
-              stats.completionRate >= 80 ? 'text-green-600' : 
-              stats.completionRate >= 60 ? 'text-yellow-600' : 'text-red-600'
-            }`}>
-              {stats.completionRate.toFixed(1)}%
-            </div>
-            <div className="text-sm text-gray-500">Tasa de Éxito</div>
-          </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-gray-800">{stats?.totalOrders ?? 0}</div>
+          <div className="text-sm text-gray-500">Total Pedidos</div>
         </div>
-      )}
+        <div className="bg-white rounded-xl shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-green-600">{stats?.completedOrders ?? 0}</div>
+          <div className="text-sm text-gray-500">Completados</div>
+        </div>
+        <div className="bg-white rounded-xl shadow-md p-4 text-center">
+          <div className="text-3xl font-bold text-red-600">{stats?.cancelledOrders ?? 0}</div>
+          <div className="text-sm text-gray-500">Cancelados</div>
+        </div>
+        <div className="bg-white rounded-xl shadow-md p-4 text-center">
+          <div className={`text-3xl font-bold ${
+            (stats?.completionRate ?? 0) >= 80 ? 'text-green-600' : 
+            (stats?.completionRate ?? 0) >= 60 ? 'text-yellow-600' : 'text-red-600'
+          }`}>
+            {(stats?.completionRate ?? 0).toFixed(1)}%
+          </div>
+          <div className="text-sm text-gray-500">Tasa de Éxito</div>
+        </div>
+      </div>
 
       {/* Modal de Movimientos de Caja */}
       <Modal
@@ -1279,7 +1361,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Resumen */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <div className="bg-blue-50 rounded-lg p-4">
                 <div className="text-2xl font-bold text-blue-600">{cashRegisterMovements.summary.totalOrders}</div>
                 <div className="text-sm text-gray-600">Total Pedidos</div>
@@ -1302,6 +1384,22 @@ export default function ReportsPage() {
                 </div>
                 <div className="text-sm text-gray-600">POS + Transfer</div>
               </div>
+              {cashRegisterMovements.summary.expressCounterTotal !== undefined && (
+                <>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {formatCurrency(cashRegisterMovements.summary.expressCounterTotal)}
+                    </div>
+                    <div className="text-sm text-gray-600">Mostrador Express</div>
+                  </div>
+                  <div className="bg-orange-100 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-700">
+                      {cashRegisterMovements.summary.expressCounterCount || 0}
+                    </div>
+                    <div className="text-sm text-gray-600">Ventas Express</div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Desglose por Método de Pago */}
@@ -1323,6 +1421,68 @@ export default function ReportsPage() {
                           {formatCurrency(method.total)}
                         </span>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Mostrador Express por Día y Hora */}
+            {cashRegisterMovements.expressCounterByDayHour && cashRegisterMovements.expressCounterByDayHour.length > 0 && (
+              <div className="bg-white rounded-lg border border-orange-200 p-4">
+                <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <span className="text-orange-600">🍊</span>
+                  Mostrador Express - Ventas por Día y Hora
+                </h3>
+                <div className="space-y-4">
+                  {cashRegisterMovements.expressCounterByDayHour.map((dayHour: any, index: number) => (
+                    <div key={index} className="bg-orange-50 rounded-lg p-4 border border-orange-100">
+                      <div className="flex justify-between items-center mb-2">
+                        <div>
+                          <div className="font-semibold text-gray-800">
+                            {new Date(dayHour.date).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Hora: {dayHour.hour}:00 - {dayHour.hour + 1}:00
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-orange-600">
+                            {formatCurrency(dayHour.total)}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {dayHour.count} venta{dayHour.count !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+                      {dayHour.orders && dayHour.orders.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-orange-200">
+                          <div className="space-y-2">
+                            {dayHour.orders.map((order: any, orderIndex: number) => (
+                              <div key={orderIndex} className="flex justify-between items-center text-sm">
+                                <div>
+                                  <span className="font-medium text-gray-700">#{order.id}</span>
+                                  <span className="text-gray-600 ml-2">
+                                    {order.customerName || 'Cliente Mostrador'}
+                                  </span>
+                                  <span className="text-gray-500 ml-2">
+                                    ({new Date(order.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-semibold text-gray-800">{formatCurrency(order.total)}</span>
+                                  <span className="text-gray-500 ml-2 text-xs capitalize">
+                                    {order.paymentMethod === 'cash' ? 'Efectivo' :
+                                     order.paymentMethod === 'pos' ? 'POS' :
+                                     order.paymentMethod === 'transfer' ? 'Transferencia' :
+                                     order.paymentMethod}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

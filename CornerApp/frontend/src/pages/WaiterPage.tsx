@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Table as TableIcon, Clock, ShoppingCart, X, Search, Grid, List, MapPin, Users } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Table as TableIcon, Clock, ShoppingCart, X, Search, Grid, List, MapPin, Users, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
-import type { Table, Product, Category, SubProduct, TableStatus, Space } from '../types';
+import type { Table, Product, Category, TableStatus, Space, SubProduct } from '../types';
 
 const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColor: string }[] = [
   { value: 'Available', label: 'Disponible', color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -21,6 +21,8 @@ export default function WaiterPage() {
   const [statusFilter, setStatusFilter] = useState<TableStatus | ''>('');
   const [spaceFilter, setSpaceFilter] = useState<number | ''>('');
   const [viewMode, setViewMode] = useState<'grid' | 'floor'>('floor');
+  const [zoomLevel, setZoomLevel] = useState(1); // Zoom inicial: 100%
+  const floorPlanRef = useRef<HTMLDivElement>(null);
   
   // Order creation state
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
@@ -122,6 +124,26 @@ export default function WaiterPage() {
 
   const getStatusInfo = (status: TableStatus) => {
     return TABLE_STATUSES.find(s => s.value === status) || TABLE_STATUSES[0];
+  };
+
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(prev + 0.25, 3)); // Máximo 300%
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => Math.max(prev - 0.25, 0.5)); // Mínimo 50%
+  };
+
+  const handleZoomReset = () => {
+    setZoomLevel(1); // Reset a 100%
+  };
+
+  const handleWheelZoom = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
+    }
   };
 
   const handleTableClick = async (table: Table) => {
@@ -281,45 +303,91 @@ export default function WaiterPage() {
         {/* Floor Plan View */}
         {viewMode === 'floor' ? (
           <div className="bg-white rounded-xl shadow-md p-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
               <h2 className="text-xl font-semibold text-gray-800">Plano del Salón</h2>
-              <p className="text-sm text-gray-500 flex items-center gap-2">
-                Click en una mesa disponible para crear pedido
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-500 hidden md:block">
+                  Click en una mesa disponible para crear pedido
+                </p>
+                {/* Controles de Zoom */}
+                <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1 border border-gray-300">
+                  <button
+                    onClick={handleZoomOut}
+                    disabled={zoomLevel <= 0.5}
+                    className="p-2 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Alejar (Ctrl + Rueda del mouse)"
+                  >
+                    <ZoomOut size={18} className="text-gray-700" />
+                  </button>
+                  <span className="px-2 text-sm font-medium text-gray-700 min-w-[60px] text-center">
+                    {Math.round(zoomLevel * 100)}%
+                  </span>
+                  <button
+                    onClick={handleZoomIn}
+                    disabled={zoomLevel >= 3}
+                    className="p-2 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Acercar (Ctrl + Rueda del mouse)"
+                  >
+                    <ZoomIn size={18} className="text-gray-700" />
+                  </button>
+                  <button
+                    onClick={handleZoomReset}
+                    className="p-2 rounded-md hover:bg-gray-200 transition-colors"
+                    title="Restablecer zoom"
+                  >
+                    <RotateCcw size={18} className="text-gray-700" />
+                  </button>
+                </div>
+              </div>
             </div>
             <div
-              className="relative w-full h-[700px] rounded-lg border-4 border-green-700 overflow-hidden"
+              ref={floorPlanRef}
+              className="relative w-full h-[700px] rounded-lg border-4 border-green-700 overflow-auto"
+              onWheel={handleWheelZoom}
               style={{
-                background: `
-                  repeating-linear-gradient(
-                    0deg,
-                    transparent,
-                    transparent 2px,
-                    rgba(34, 197, 94, 0.1) 2px,
-                    rgba(34, 197, 94, 0.1) 4px
-                  ),
-                  repeating-linear-gradient(
-                    90deg,
-                    transparent,
-                    transparent 2px,
-                    rgba(22, 163, 74, 0.1) 2px,
-                    rgba(22, 163, 74, 0.1) 4px
-                  ),
-                  radial-gradient(
-                    circle at 20% 30%,
-                    rgba(74, 222, 128, 0.3) 0%,
-                    transparent 50%
-                  ),
-                  radial-gradient(
-                    circle at 80% 70%,
-                    rgba(34, 197, 94, 0.3) 0%,
-                    transparent 50%
-                  ),
-                  linear-gradient(135deg, #4ade80 0%, #22c55e 30%, #16a34a 60%, #15803d 100%)
-                `,
-                backgroundSize: '4px 4px, 4px 4px, 200px 200px, 200px 200px, 100% 100%',
+                cursor: zoomLevel !== 1 ? 'grab' : 'default',
               }}
             >
+              <div
+                className="relative origin-top-left"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  minWidth: '100%',
+                  minHeight: '100%',
+                  transform: `scale(${zoomLevel})`,
+                  transformOrigin: 'top left',
+                  transition: 'transform 0.2s ease-out',
+                  background: `
+                    repeating-linear-gradient(
+                      0deg,
+                      transparent,
+                      transparent 2px,
+                      rgba(34, 197, 94, 0.1) 2px,
+                      rgba(34, 197, 94, 0.1) 4px
+                    ),
+                    repeating-linear-gradient(
+                      90deg,
+                      transparent,
+                      transparent 2px,
+                      rgba(22, 163, 74, 0.1) 2px,
+                      rgba(22, 163, 74, 0.1) 4px
+                    ),
+                    radial-gradient(
+                      circle at 20% 30%,
+                      rgba(74, 222, 128, 0.3) 0%,
+                      transparent 50%
+                    ),
+                    radial-gradient(
+                      circle at 80% 70%,
+                      rgba(34, 197, 94, 0.3) 0%,
+                      transparent 50%
+                    ),
+                    linear-gradient(135deg, #4ade80 0%, #22c55e 30%, #16a34a 60%, #15803d 100%)
+                  `,
+                  backgroundSize: '4px 4px, 4px 4px, 200px 200px, 200px 200px, 100% 100%',
+                }}
+              >
               {/* Paredes y áreas del salón */}
               <div className="absolute inset-0 pointer-events-none">
                 <div className="absolute left-0 top-0 w-20 h-full bg-gray-400 border-r-4 border-gray-600 opacity-70"></div>
@@ -339,7 +407,7 @@ export default function WaiterPage() {
                 </div>
               ) : (
                 filteredTables.map((table) => {
-                  const statusInfo = getStatusInfo(table.status);
+                  // const statusInfo = getStatusInfo(table.status);
                   const isAvailable = table.status === 'Available' || table.status === 'Occupied' || table.status === 'OrderPlaced';
                   const getFixedPosition = (id: number, axis: 'x' | 'y') => {
                     const seed = id * (axis === 'x' ? 7919 : 7907);
@@ -506,6 +574,7 @@ export default function WaiterPage() {
                   ))}
                 </div>
               </div>
+              </div>
             </div>
           </div>
         ) : (
@@ -642,31 +711,38 @@ export default function WaiterPage() {
                   <label className="block text-sm font-medium text-gray-700">
                     Selecciona un Producto
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
                     {products
                       .filter(p => p.categoryId === selectedCategoryId && p.isAvailable)
                       .map((product) => (
                         <button
                           key={product.id}
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedProductId(product.id);
                             setProductQuantity(1);
                             setSelectedSubProducts([]);
-                            setProductSubProducts([]);
+                            // Cargar subproductos del producto seleccionado
+                            try {
+                              const subProducts = await api.getSubProductsByProduct(product.id);
+                              setProductSubProducts(subProducts.filter(sp => sp.isAvailable));
+                            } catch (error) {
+                              console.error('Error loading subproducts:', error);
+                              setProductSubProducts([]);
+                            }
                           }}
-                          className={`p-3 border-2 rounded-lg text-left transition-all ${
+                          className={`p-2 border rounded-lg text-left transition-all ${
                             selectedProductId === product.id
                               ? 'border-primary-500 bg-primary-50'
                               : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
                           }`}
                         >
-                          <div className="font-medium text-gray-800">{product.name}</div>
+                          <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
                           {product.description && (
-                            <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                            <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
                               {product.description}
                             </div>
                           )}
-                          <div className="text-sm font-bold text-primary-600 mt-2">
+                          <div className="text-xs font-bold text-primary-600 mt-1">
                             ${product.price.toFixed(2)}
                           </div>
                         </button>
@@ -675,7 +751,54 @@ export default function WaiterPage() {
                 </div>
 
                 {selectedProductId && (
-                  <div className="space-y-2 pt-2 border-t">
+                  <div className="space-y-3 pt-2 border-t">
+                    {/* Subproductos */}
+                    {productSubProducts.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Subproductos (opcional)
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                          {productSubProducts.map((subProduct) => (
+                            <label
+                              key={subProduct.id}
+                              className="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                              style={{
+                                borderColor: selectedSubProducts.includes(subProduct.id)
+                                  ? 'rgb(59, 130, 246)'
+                                  : 'rgb(229, 231, 235)',
+                                backgroundColor: selectedSubProducts.includes(subProduct.id)
+                                  ? 'rgb(239, 246, 255)'
+                                  : 'transparent',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedSubProducts.includes(subProduct.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSubProducts([...selectedSubProducts, subProduct.id]);
+                                  } else {
+                                    setSelectedSubProducts(selectedSubProducts.filter(id => id !== subProduct.id));
+                                  }
+                                }}
+                                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                              />
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-gray-800">{subProduct.name}</div>
+                                {subProduct.description && (
+                                  <div className="text-xs text-gray-500">{subProduct.description}</div>
+                                )}
+                                <div className="text-xs font-semibold text-primary-600 mt-1">
+                                  +${subProduct.price.toFixed(2)}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-2 items-center">
                       <label className="text-sm font-medium text-gray-700">Cantidad:</label>
                       <input
@@ -691,14 +814,24 @@ export default function WaiterPage() {
                         if (selectedProductId) {
                           const product = products.find(p => p.id === selectedProductId);
                           if (product) {
+                            const selectedSubs = productSubProducts.filter(sp => selectedSubProducts.includes(sp.id));
+                            const subProductsTotal = selectedSubs.reduce((sum, sp) => sum + sp.price, 0);
+                            
                             setOrderItems([...orderItems, {
                               id: product.id,
                               name: product.name,
-                              price: product.price,
+                              price: product.price + subProductsTotal,
                               quantity: productQuantity,
+                              subProducts: selectedSubs.length > 0 ? selectedSubs.map(sp => ({
+                                id: sp.id,
+                                name: sp.name,
+                                price: sp.price
+                              })) : undefined
                             }]);
                             setSelectedProductId(null);
                             setProductQuantity(1);
+                            setSelectedSubProducts([]);
+                            setProductSubProducts([]);
                           }
                         }
                       }}
@@ -717,10 +850,21 @@ export default function WaiterPage() {
                 <h3 className="text-sm font-medium text-gray-700 mb-2">Items del Pedido</h3>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {orderItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div key={index} className="flex items-start justify-between p-2 bg-gray-50 rounded-lg">
                       <div className="flex-1">
                         <div className="font-medium text-gray-800">{item.name}</div>
-                        <div className="text-sm text-gray-500">
+                        {item.subProducts && item.subProducts.length > 0 && (
+                          <div className="mt-1 ml-3 space-y-1">
+                            {item.subProducts.map((subProduct, subIndex) => (
+                              <div key={subIndex} className="text-xs text-gray-600 flex items-center gap-1">
+                                <span className="text-primary-600">+</span>
+                                <span>{subProduct.name}</span>
+                                <span className="text-primary-600">(+${subProduct.price.toFixed(2)})</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="text-sm text-gray-500 mt-1">
                           {item.quantity}x ${item.price.toFixed(2)} = ${(item.price * item.quantity).toFixed(2)}
                         </div>
                       </div>

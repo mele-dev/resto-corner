@@ -769,22 +769,9 @@ public class AdminOrdersController : ControllerBase
             }
 
             var oldStatus = order.Status;
-            order.Status = request.Status;
-            order.UpdatedAt = DateTime.UtcNow;
-
-            // Registrar en historial de estados
-            var historyEntry = new OrderStatusHistory
-            {
-                OrderId = order.Id,
-                FromStatus = oldStatus,
-                ToStatus = request.Status,
-                ChangedBy = "admin", // TODO: Obtener del contexto de autenticación
-                Note = request.Note,
-                ChangedAt = DateTime.UtcNow
-            };
-            _context.OrderStatusHistory.Add(historyEntry);
-
+            
             // Asignar repartidor si se proporciona (solo del mismo restaurante)
+            // Esto debe hacerse ANTES de cambiar el estado para poder detectar si el pedido estaba en "pending"
             if (request.DeliveryPersonId.HasValue)
             {
                 var deliveryPerson = await _context.DeliveryPersons
@@ -793,7 +780,51 @@ public class AdminOrdersController : ControllerBase
                 {
                     order.DeliveryPersonId = request.DeliveryPersonId.Value;
                     order.DeliveryPerson = deliveryPerson;
+                    
+                    // Si el pedido está en "pending" y viene de clientesDelivery (tiene dirección pero no mesa),
+                    // avanzar automáticamente a "preparing" cuando se asigna el repartidor
+                    bool isDeliveryOrder = !string.IsNullOrWhiteSpace(order.CustomerAddress) && !order.TableId.HasValue;
+                    if (isDeliveryOrder && oldStatus == OrderConstants.STATUS_PENDING)
+                    {
+                        // Si el request.Status es "preparing" o "pending", cambiar a "preparing"
+                        order.Status = OrderConstants.STATUS_PREPARING;
+                        request.Status = OrderConstants.STATUS_PREPARING;
+                        _logger.LogInformation(
+                            "Pedido {OrderId} de clientesDelivery: Repartidor asignado, avanzando automáticamente de PENDING a PREPARING",
+                            order.Id
+                        );
+                    }
                 }
+            }
+
+            // Actualizar el estado del pedido (puede haber sido modificado arriba si se asignó un repartidor)
+            if (order.Status != request.Status)
+            {
+                order.Status = request.Status;
+            }
+            order.UpdatedAt = DateTime.UtcNow;
+
+            // Registrar en historial de estados
+            var historyEntry = new OrderStatusHistory
+            {
+                OrderId = order.Id,
+                FromStatus = oldStatus,
+                ToStatus = order.Status, // Usar el estado final del pedido (puede haber sido modificado)
+                ChangedBy = "admin", // TODO: Obtener del contexto de autenticación
+                Note = request.Note,
+                ChangedAt = DateTime.UtcNow
+            };
+            _context.OrderStatusHistory.Add(historyEntry);
+
+            // Si el pedido viene de clientesDelivery (tiene dirección pero no mesa) y está en pending,
+            // no puede avanzar a preparing hasta que se asigne un repartidor
+            bool isDeliveryOrderCheck = !string.IsNullOrWhiteSpace(order.CustomerAddress) && !order.TableId.HasValue;
+            if (isDeliveryOrderCheck && 
+                oldStatus == OrderConstants.STATUS_PENDING && 
+                request.Status == OrderConstants.STATUS_PREPARING &&
+                !order.DeliveryPersonId.HasValue)
+            {
+                return BadRequest(new { error = "Los pedidos de delivery requieren asignar un repartidor antes de pasar a preparación" });
             }
 
             // Si cambia a "en camino", verificar que tenga repartidor (solo si NO es un pedido de mesa)
@@ -855,11 +886,34 @@ public class AdminOrdersController : ControllerBase
                 await _cache.RemoveAsync(ORDER_STATS_CACHE_KEY);
             }
 
+            // Recargar el pedido completo con la información del repartidor para enviarlo en la notificación
+            // Esto es especialmente importante cuando se cambia a "delivering" para que el cliente tenga el teléfono del repartidor
+            var orderWithDetails = await _context.Orders
+                .AsNoTracking()
+                .Include(o => o.Items)
+                .Include(o => o.DeliveryPerson)
+                .FirstOrDefaultAsync(o => o.Id == order.Id);
+
             // Notificar via SignalR
-            await _orderNotificationService.NotifyOrderStatusChanged(
-                order.Id, 
-                order.Status, 
-                order.DeliveryPerson?.Name);
+            if (orderWithDetails != null)
+            {
+                // Enviar actualización completa del pedido para que el frontend tenga toda la información
+                await _orderNotificationService.NotifyOrderUpdated(orderWithDetails);
+                
+                // También enviar notificación de cambio de estado
+                await _orderNotificationService.NotifyOrderStatusChanged(
+                    orderWithDetails.Id, 
+                    orderWithDetails.Status, 
+                    orderWithDetails.DeliveryPerson?.Name);
+            }
+            else
+            {
+                // Fallback si no se puede recargar el pedido
+                await _orderNotificationService.NotifyOrderStatusChanged(
+                    order.Id, 
+                    order.Status, 
+                    order.DeliveryPerson?.Name);
+            }
 
             // Disparar webhook si el pedido se completó
             if (request.Status == OrderConstants.STATUS_COMPLETED)
@@ -980,6 +1034,26 @@ public class AdminOrdersController : ControllerBase
                 order.POSResponse = request.POSResponse;
                 _logger.LogInformation("Información POS guardada para pedido {OrderId}: TransactionId={TransactionId}", 
                     id, request.POSTransactionId ?? (long.TryParse(request.POSTransactionIdString, out var parsed) ? parsed : 0));
+            }
+
+            // Si es pago por transferencia, guardar el comprobante si se proporciona
+            if ((paymentMethod.Name.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower() || 
+                 paymentMethod.Name.ToLower().Contains("transfer")) && 
+                !string.IsNullOrWhiteSpace(request.ReceiptImage))
+            {
+                // Validar el comprobante
+                var (isValid, errorMessage) = FileValidationHelper.ValidateReceiptImage(
+                    request.ReceiptImage, 
+                    AppConstants.MAX_PRODUCT_IMAGE_SIZE_BYTES
+                );
+
+                if (!isValid)
+                {
+                    return BadRequest(new { error = $"Comprobante inválido: {errorMessage}" });
+                }
+
+                order.TransferReceiptImage = request.ReceiptImage;
+                _logger.LogInformation("Comprobante de transferencia guardado para pedido {OrderId}", id);
             }
 
             await _context.SaveChangesAsync();
@@ -2661,6 +2735,8 @@ public class UpdateOrderPaymentMethodRequest
     public string? POSTransactionIdString { get; set; }
     public string? POSTransactionDateTime { get; set; }
     public string? POSResponse { get; set; }
+    // Comprobante de transferencia (base64, opcional, solo para pagos por transferencia)
+    public string? ReceiptImage { get; set; }
 }
 
 public class POSTransactionRequest

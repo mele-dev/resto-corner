@@ -527,7 +527,7 @@ export default function AdminUsersPage() {
         message={`¿Estás seguro de que deseas eliminar al usuario "${deleteUser?.username}"? Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         cancelText="Cancelar"
-        variant="danger"
+        type="danger"
       />
     </div>
   );

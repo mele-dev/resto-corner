@@ -376,7 +376,15 @@ public class AdminDeliveryPersonsController : ControllerBase
 
         var completedOrders = orders.Where(o => 
             o.Status == OrderConstants.STATUS_COMPLETED
-        ).Count();
+        ).ToList();
+
+        // Calcular total en efectivo de pedidos completados
+        var totalCash = completedOrders
+            .Where(o => o.PaymentMethod?.ToLower() == PaymentConstants.METHOD_CASH.ToLower())
+            .Sum(o => o.Total);
+
+        // Calcular monto esperado (inicial + efectivo recibido)
+        var expectedAmount = openCashRegister.InitialAmount + totalCash;
 
         return Ok(new
         {
@@ -389,8 +397,10 @@ public class AdminDeliveryPersonsController : ControllerBase
                 openedAt = openCashRegister.OpenedAt,
                 initialAmount = openCashRegister.InitialAmount,
                 activeOrders = activeOrders,
-                completedOrders = completedOrders,
-                totalOrders = orders.Count
+                completedOrders = completedOrders.Count,
+                totalOrders = orders.Count,
+                totalCash = totalCash,
+                expectedAmount = expectedAmount
             }
         });
     }
@@ -510,13 +520,33 @@ public class AdminDeliveryPersonsController : ControllerBase
         var totalTransfer = orders.Where(o => o.PaymentMethod?.ToLower() == PaymentConstants.METHOD_TRANSFER.ToLower())
             .Sum(o => o.Total);
 
-        // Calcular monto final (inicial + ventas en efectivo)
-        var finalAmount = cashRegister.InitialAmount + totalCash;
+        // Calcular monto final esperado (inicial + ventas en efectivo)
+        var expectedFinalAmount = cashRegister.InitialAmount + totalCash;
+
+        // Validar que el monto en efectivo ingresado coincida con el esperado
+        if (request?.ActualCashAmount.HasValue == true)
+        {
+            var actualCashAmount = request.ActualCashAmount.Value;
+            if (Math.Abs(actualCashAmount - expectedFinalAmount) > 0.01m) // Tolerancia de 1 centavo
+            {
+                return BadRequest(new
+                {
+                    error = "El monto en efectivo ingresado no coincide con el esperado",
+                    expectedAmount = expectedFinalAmount,
+                    actualAmount = actualCashAmount,
+                    difference = actualCashAmount - expectedFinalAmount
+                });
+            }
+        }
+        else
+        {
+            return BadRequest(new { error = "Debe ingresar el monto en efectivo que tiene el repartidor" });
+        }
 
         // Actualizar caja
         cashRegister.ClosedAt = DateTime.UtcNow;
         cashRegister.IsOpen = false;
-        cashRegister.FinalAmount = finalAmount;
+        cashRegister.FinalAmount = request.ActualCashAmount.Value;
         cashRegister.TotalSales = totalSales;
         cashRegister.TotalCash = totalCash;
         cashRegister.TotalPOS = totalPOS;
@@ -608,7 +638,7 @@ public class AdminDeliveryPersonsController : ControllerBase
                        o.RestaurantId == restaurantId &&
                        !o.IsArchived);
 
-        // Si hay caja abierta, filtrar por pedidos de esa sesión
+        // Si hay una caja abierta, filtrar por fecha de apertura de la caja
         if (openCashRegister != null)
         {
             query = query.Where(o => o.CreatedAt >= openCashRegister.OpenedAt);
@@ -616,7 +646,7 @@ public class AdminDeliveryPersonsController : ControllerBase
 
         // Si includeCompleted es false, solo mostrar activos (no completados ni cancelados)
         // Si includeCompleted es true, mostrar todos (incluyendo completados y cancelados)
-        if (!includeCompleted && openCashRegister == null)
+        if (!includeCompleted)
         {
             query = query.Where(o => 
                 o.Status != OrderConstants.STATUS_COMPLETED && 
@@ -662,4 +692,5 @@ public class OpenDeliveryCashRegisterRequest
 public class CloseDeliveryCashRegisterRequest
 {
     public string? Notes { get; set; }
+    public decimal? ActualCashAmount { get; set; }
 }

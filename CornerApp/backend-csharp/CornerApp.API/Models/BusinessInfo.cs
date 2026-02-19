@@ -10,6 +10,12 @@ public class BusinessInfo
 {
     public int Id { get; set; }
     
+    // Multi-tenant: cada restaurante tiene su propia configuración
+    public int RestaurantId { get; set; }
+    
+    // Relación con Restaurant
+    public Restaurant? Restaurant { get; set; }
+    
     [Required]
     [MaxLength(100)]
     public string StoreName { get; set; } = "Mi Tienda";
@@ -76,6 +82,10 @@ public class BusinessInfo
     // Webhook settings
     [MaxLength(500)]
     public string? OrderCompletionWebhookUrl { get; set; }
+    
+    // Tipo de cambio del dólar (para conversión de pagos)
+    // Ejemplo: 40.50 significa que 1 USD = 40.50 UYU
+    public decimal? DollarExchangeRate { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

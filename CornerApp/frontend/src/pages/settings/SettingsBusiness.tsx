@@ -25,7 +25,11 @@ export default function SettingsBusinessPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [businessInfo, setBusinessInfo] = useState<BusinessInfo | null>(null);
-  const [formData, setFormData] = useState<UpdateBusinessInfoRequest>({});
+  const [formData, setFormData] = useState<UpdateBusinessInfoRequest>({
+    openingTime: '20:00',
+    closingTime: '00:00',
+    isOpen: true
+  });
 
   useEffect(() => {
     loadBusinessInfo();
@@ -57,6 +61,7 @@ export default function SettingsBusinessPage() {
         closedMessage: data.closedMessage || '',
         pointsPerOrder: data.pointsPerOrder || 1,
         orderCompletionWebhookUrl: data.orderCompletionWebhookUrl || '',
+        dollarExchangeRate: data.dollarExchangeRate,
       });
     } catch (error) {
       showToast('Error al cargar la información del negocio', 'error');
@@ -120,13 +125,13 @@ export default function SettingsBusinessPage() {
           {/* Toggle abierto/cerrado */}
           <button
             onClick={handleToggleOpen}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${formData.isOpen
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${formData.isOpen ?? businessInfo?.isOpen ?? true
               ? 'bg-green-100 text-green-700 hover:bg-green-200'
               : 'bg-red-100 text-red-700 hover:bg-red-200'
               }`}
           >
             <Power size={18} />
-            {formData.isOpen ? 'Abierto' : 'Cerrado'}
+            {formData.isOpen ?? businessInfo?.isOpen ?? true ? 'Abierto' : 'Cerrado'}
           </button>
         </div>
       </div>
@@ -422,6 +427,37 @@ export default function SettingsBusinessPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Tipo de Cambio del Dólar */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                <DollarSign size={16} className="text-blue-600" />
+                Tipo de Cambio del Dólar
+              </h3>
+              <p className="text-xs text-gray-600 mb-3">
+                Ingresa el tipo de cambio actual del dólar (USD) para permitir pagos en dólares en mesas.
+                Ejemplo: si 1 USD = 40.50 UYU, ingresa 40.50
+              </p>
+              <div>
+                <label htmlFor="dollarExchangeRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  Tipo de Cambio (1 USD = ? UYU)
+                </label>
+                <input
+                  type="number"
+                  id="dollarExchangeRate"
+                  name="dollarExchangeRate"
+                  min="0"
+                  step="0.01"
+                  value={formData.dollarExchangeRate ?? ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, dollarExchangeRate: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="40.50"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Si no se configura, solo se permitirán pagos en pesos (UYU)
+                </p>
               </div>
             </div>
           </div>

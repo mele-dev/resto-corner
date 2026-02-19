@@ -10,6 +10,7 @@ public class RegisterRequest
     public string Password { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? DefaultAddress { get; set; }
+    public int? RestaurantId { get; set; } // ID del restaurante (opcional - null para clientes que pueden pedir de cualquier restaurante)
 }
 
 /// <summary>
@@ -19,6 +20,7 @@ public class LoginRequest
 {
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public int? RestaurantId { get; set; } // Opcional: para seleccionar restaurante cuando hay múltiples
 }
 
 /// <summary>
@@ -36,7 +38,7 @@ public class UpdateProfileRequest
 /// </summary>
 public class AdminLoginRequest
 {
-    public int? RestaurantId { get; set; } // Opcional para superadmin
+    public string? RestaurantIdentifier { get; set; } // RUT/Identificador del restaurante (opcional para superadmin)
     
     [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El usuario es requerido")]
     public string Username { get; set; } = string.Empty;

@@ -30,70 +30,106 @@ public class CategoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todas las categorías activas del restaurante del usuario autenticado
+    /// Obtiene todas las categorías activas.
+    /// - Para clientes: devuelve categorías de todos los restaurantes que tengan productos
+    /// - Para admins/empleados: devuelve categorías solo del restaurante del usuario autenticado
     /// </summary>
     [HttpGet]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)] // Deshabilitar ResponseCache para evitar problemas con multi-tenant
     public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
     {
-        // Obtener RestaurantId del usuario autenticado
-        var restaurantId = RestaurantHelper.GetRestaurantId(User);
-        
-        // Usar una clave de cache específica por restaurante
-        var cacheKey = $"{CATEGORIES_CACHE_KEY}_{restaurantId}";
-        
-        // Obtener ETag del cliente una sola vez
-        var clientETag = Request.Headers["If-None-Match"].ToString();
-        
-        // Intentar obtener del cache primero
-        var cachedCategories = await _cache.GetAsync<List<Category>>(cacheKey);
-        if (cachedCategories != null)
+        try
         {
-            // Generar ETag también para respuestas desde cache
-            var cachedETag = ETagHelper.GenerateETag(cachedCategories);
-            if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, cachedETag))
+            // Determinar si el usuario es un cliente (no tiene rol) o admin/empleado (tiene rol)
+            var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            var isCustomer = string.IsNullOrEmpty(userRole);
+            
+            int? restaurantId = null;
+            
+            // Si es admin/empleado, usar el RestaurantId del token para filtrar
+            // Si es cliente, ignorar el RestaurantId y devolver categorías de todos los restaurantes
+            if (!isCustomer)
             {
-                _logger.LogInformation("Categorías no han cambiado (ETag match desde cache) para restaurante {RestaurantId}: {Count}", restaurantId, cachedCategories.Count);
+                restaurantId = RestaurantHelper.GetRestaurantIdOrNull(User);
+            }
+            // Si es cliente, restaurantId permanece null para obtener categorías de todos los restaurantes
+            
+            _logger.LogInformation("GetCategories - Usuario: {UserType}, RestaurantId: {RestaurantId}, TieneRol: {HasRole}", 
+                isCustomer ? "Cliente" : "Admin/Empleado", 
+                restaurantId?.ToString() ?? "null (todos los restaurantes)",
+                !string.IsNullOrEmpty(userRole));
+            
+            // Usar una clave de cache específica por restaurante o "all" si es null
+            var cacheKey = restaurantId.HasValue 
+                ? $"{CATEGORIES_CACHE_KEY}_{restaurantId.Value}" 
+                : $"{CATEGORIES_CACHE_KEY}_all";
+            
+            // Obtener ETag del cliente una sola vez
+            var clientETag = Request.Headers["If-None-Match"].ToString();
+            
+            // Intentar obtener del cache primero
+            var cachedCategories = await _cache.GetAsync<List<Category>>(cacheKey);
+            if (cachedCategories != null)
+            {
+                // Generar ETag también para respuestas desde cache
+                var cachedETag = ETagHelper.GenerateETag(cachedCategories);
+                if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, cachedETag))
+                {
+                    _logger.LogInformation("Categorías no han cambiado (ETag match desde cache) para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", cachedCategories.Count);
+                    return StatusCode(304); // Not Modified
+                }
+                Response.Headers.Append("ETag", cachedETag);
+                _logger.LogInformation("Categorías obtenidas del cache para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", cachedCategories.Count);
+                return Ok(cachedCategories);
+            }
+            
+            // Registrar cache miss
+            _metricsService?.RecordCacheMiss(cacheKey);
+
+            // Usar AsNoTracking para operaciones de solo lectura (mejor performance)
+            // Si restaurantId es null (cliente), devolver categorías de todos los restaurantes
+            // Si restaurantId tiene valor (admin/empleado), filtrar por ese restaurante
+            var query = _context.Categories
+                .AsNoTracking()
+                .Where(c => c.IsActive && c.RestaurantId > 0)
+                .AsQueryable();
+
+            if (restaurantId.HasValue)
+            {
+                // Filtrar por restaurante específico (solo para admins/empleados)
+                query = query.Where(c => c.RestaurantId == restaurantId.Value);
+            }
+            // Si restaurantId es null (cliente), no filtrar (devolver todas las categorías de todos los restaurantes)
+
+            var categories = await query
+                .OrderBy(c => c.RestaurantId) // Agrupar por restaurante primero
+                .ThenBy(c => c.DisplayOrder)
+                .ToListAsync();
+            
+            // Guardar en cache con clave específica por restaurante o "all"
+            await _cache.SetAsync(cacheKey, categories, CACHE_DURATION);
+
+            // Generar ETag
+            var etag = ETagHelper.GenerateETag(categories);
+            
+            // Verificar si el cliente tiene el mismo ETag (304 Not Modified)
+            if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, etag))
+            {
+                _logger.LogInformation("Categorías no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", categories.Count);
                 return StatusCode(304); // Not Modified
             }
-            Response.Headers.Append("ETag", cachedETag);
-            _logger.LogInformation("Categorías obtenidas del cache para restaurante {RestaurantId}: {Count}", restaurantId, cachedCategories.Count);
-            return Ok(cachedCategories);
+
+            // Agregar ETag al header de respuesta
+            Response.Headers.Append("ETag", etag);
+
+            _logger.LogInformation("Categorías obtenidas de BD y guardadas en cache para restaurante {RestaurantId}: {Count}", restaurantId?.ToString() ?? "all", categories.Count);
+            return Ok(categories);
         }
-        
-        // Registrar cache miss
-        _metricsService?.RecordCacheMiss(cacheKey);
-
-        // Usar AsNoTracking para operaciones de solo lectura (mejor performance)
-        // No incluir Products para evitar problemas de serialización y mejorar performance
-        // Filtrar por RestaurantId para multi-tenant
-        // IMPORTANTE: Solo devolver categorías que tengan RestaurantId válido y coincida con el del usuario
-        var categories = await _context.Categories
-            .AsNoTracking()
-            .Where(c => c.IsActive && 
-                       c.RestaurantId == restaurantId && 
-                       c.RestaurantId > 0) // Asegurar que RestaurantId sea válido
-            .OrderBy(c => c.DisplayOrder)
-            .ToListAsync();
-        
-        // Guardar en cache con clave específica por restaurante
-        await _cache.SetAsync(cacheKey, categories, CACHE_DURATION);
-
-        // Generar ETag
-        var etag = ETagHelper.GenerateETag(categories);
-        
-        // Verificar si el cliente tiene el mismo ETag (304 Not Modified)
-        if (!string.IsNullOrEmpty(clientETag) && ETagHelper.IsETagValid(clientETag, etag))
+        catch (Exception ex)
         {
-            _logger.LogInformation("Categorías no han cambiado (ETag match) para restaurante {RestaurantId}: {Count}", restaurantId, categories.Count);
-            return StatusCode(304); // Not Modified
+            _logger.LogError(ex, "Error al obtener categorías");
+            return StatusCode(500, new { error = "Error al obtener las categorías", details = ex.Message });
         }
-
-        // Agregar ETag al header de respuesta
-        Response.Headers.Append("ETag", etag);
-
-        _logger.LogInformation("Categorías obtenidas de BD y guardadas en cache para restaurante {RestaurantId}: {Count}", restaurantId, categories.Count);
-        return Ok(categories);
     }
 
     /// <summary>

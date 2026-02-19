@@ -33,7 +33,7 @@ public class Restaurant
     public List<Customer> Customers { get; set; } = new();
     public List<CashRegister> CashRegisters { get; set; } = new();
     public List<DeliveryCashRegister> DeliveryCashRegisters { get; set; } = new();
-    public BusinessInfo? BusinessInfo { get; set; }
+    public List<BusinessInfo> BusinessInfo { get; set; } = new(); // Cambiado a lista para soportar múltiples configuraciones (aunque solo debería haber una por restaurante)
     public DeliveryZoneConfig? DeliveryZoneConfig { get; set; }
     public EmailConfig? EmailConfig { get; set; }
 }

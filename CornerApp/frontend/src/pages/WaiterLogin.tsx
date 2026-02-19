@@ -1,16 +1,56 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from '../components/Toast/ToastContext';
 import { LogIn, Lock, User, Utensils, Store } from 'lucide-react';
 import Logo from '../components/Logo/Logo';
 
+interface Restaurant {
+  id: number;
+  name: string;
+  identifier?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+}
+
 export default function WaiterLoginPage() {
-  const [restaurantId, setRestaurantId] = useState('');
+  const [restaurantId, setRestaurantId] = useState<number>(0);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Cargar restaurantes disponibles
+    const fetchRestaurants = async () => {
+      try {
+        setLoadingRestaurants(true);
+        const response = await fetch('/api/restaurants');
+        
+        if (!response.ok) {
+          throw new Error('Error al cargar restaurantes');
+        }
+
+        const data = await response.json();
+        setRestaurants(data);
+        
+        // Si solo hay un restaurante, seleccionarlo automáticamente
+        if (data.length === 1) {
+          setRestaurantId(data[0].id);
+        }
+      } catch (error) {
+        showToast('Error al cargar restaurantes. Por favor, recarga la página.', 'error');
+        console.error(error);
+      } finally {
+        setLoadingRestaurants(false);
+      }
+    };
+
+    fetchRestaurants();
+  }, [showToast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,14 +60,8 @@ export default function WaiterLoginPage() {
       return;
     }
 
-    if (!restaurantId) {
-      showToast('El ID del restaurante es requerido', 'error');
-      return;
-    }
-
-    const restaurantIdNum = parseInt(restaurantId, 10);
-    if (isNaN(restaurantIdNum) || restaurantIdNum <= 0) {
-      showToast('El ID del restaurante debe ser un número válido', 'error');
+    if (!restaurantId || restaurantId <= 0) {
+      showToast('Por favor selecciona un restaurante', 'error');
       return;
     }
 
@@ -39,7 +73,7 @@ export default function WaiterLoginPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ restaurantId: restaurantIdNum, username, password }),
+        body: JSON.stringify({ restaurantId: restaurantId, username, password }),
       });
 
       if (!response.ok) {
@@ -54,9 +88,16 @@ export default function WaiterLoginPage() {
         throw new Error('Este usuario no tiene permisos de mozo');
       }
       
+      // Limpiar tokens de admin si existen (para evitar conflictos)
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('admin_user');
+      
       // Guardar token y datos del mozo
       localStorage.setItem('waiter_token', data.token);
       localStorage.setItem('waiter_user', JSON.stringify(data.user));
+      
+      // Disparar evento para actualizar AuthContext
+      window.dispatchEvent(new Event('auth-changed'));
       
       showToast('¡Bienvenido!', 'success');
       navigate('/mozo');
@@ -121,28 +162,34 @@ export default function WaiterLoginPage() {
 
           {/* Formulario */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* ID Restaurante */}
+            {/* Restaurante */}
             <div>
               <label htmlFor="restaurantId" className="block text-sm font-semibold text-white mb-2">
-                ID del Restaurante <span className="text-gray-400 text-xs">(requerido)</span>
+                Restaurante <span className="text-gray-400 text-xs">(requerido)</span>
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <Store size={20} className="text-gray-400 group-focus-within:text-primary-500 transition-colors" />
                 </div>
-                <input
+                <select
                   id="restaurantId"
-                  type="number"
                   value={restaurantId}
-                  onChange={(e) => setRestaurantId(e.target.value)}
-                  className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900 placeholder-gray-400"
-                  placeholder="Ingresa el ID del restaurante"
-                  autoComplete="off"
-                  disabled={loading}
-                  min="1"
+                  onChange={(e) => setRestaurantId(Number(e.target.value))}
+                  className="block w-full pl-12 pr-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none text-gray-900"
+                  disabled={loading || loadingRestaurants}
                   required
-                />
+                >
+                  <option value="0">Selecciona un restaurante</option>
+                  {restaurants.map((restaurant) => (
+                    <option key={restaurant.id} value={restaurant.id}>
+                      {restaurant.name}
+                    </option>
+                  ))}
+                </select>
               </div>
+              {loadingRestaurants && (
+                <p className="mt-1 text-xs text-gray-400">Cargando restaurantes...</p>
+              )}
             </div>
 
             {/* Usuario */}
@@ -208,6 +255,16 @@ export default function WaiterLoginPage() {
               )}
             </button>
           </form>
+
+          {/* Link de vuelta al login principal */}
+          <div className="mt-4">
+            <Link
+              to="/login"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              <span>← Volver al login principal</span>
+            </Link>
+          </div>
 
           {/* Footer */}
           <div className="mt-8 pt-6 border-t border-gray-200">

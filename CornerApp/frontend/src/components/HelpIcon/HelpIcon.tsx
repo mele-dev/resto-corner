@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info } from 'lucide-react';
 import Modal from '../Modal/Modal';
 
 interface HelpIconProps {
@@ -25,12 +25,7 @@ export default function HelpIcon({ title, content, className = '' }: HelpIconPro
       <Modal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
-        title={
-          <div className="flex items-center gap-2">
-            <Info className="text-blue-600" size={24} />
-            <span>{title}</span>
-          </div>
-        }
+        title={title}
       >
         <div className="max-h-[70vh] overflow-y-auto">
           <div className="prose prose-sm max-w-none text-gray-700">

@@ -8,8 +8,8 @@ public class CreateRestaurantRequest
     [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre del restaurante es requerido")]
     public string Name { get; set; } = string.Empty;
 
-    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El identificador del restaurante es requerido")]
-    public string Identifier { get; set; } = string.Empty;
+    // Identifier es opcional - se generará automáticamente si no se proporciona
+    public string? Identifier { get; set; }
 
     public string? Address { get; set; }
     public string? Phone { get; set; }

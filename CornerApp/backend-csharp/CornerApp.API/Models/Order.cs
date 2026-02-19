@@ -6,6 +6,9 @@ public class Order
 {
     public int Id { get; set; }
     
+    // Número de pedido único de 8 dígitos (para mostrar al cliente)
+    public string? OrderNumber { get; set; }
+    
     // Multi-tenant: cada pedido pertenece a un restaurante
     public int RestaurantId { get; set; }
     public Restaurant? Restaurant { get; set; }
@@ -95,6 +98,9 @@ public class OrderItem
     public decimal UnitPrice { get; set; }
     public int Quantity { get; set; }
     public decimal Subtotal => UnitPrice * Quantity;
+    
+    // Indica si el item fue rechazado por la cocina
+    public bool IsRejected { get; set; } = false;
     
     // Subproductos (guarniciones) asociados a este item
     // Se almacena como JSON string para flexibilidad

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, Plus, Search, DollarSign, Package, MapPin, Phone, Clock, CheckCircle, XCircle, AlertCircle, X, Eye, ShoppingCart, CreditCard } from 'lucide-react';
+import { Truck, Plus, Search, DollarSign, XCircle, X, Eye, ShoppingCart, Phone, CheckCircle, Ban, MapPin, Clock } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import Modal from '../components/Modal/Modal';
@@ -22,7 +22,9 @@ export default function DeliveryPersonsManagementPage() {
   const [selectedDeliveryPersonForCashRegister, setSelectedDeliveryPersonForCashRegister] = useState<number | null>(null);
   const [initialAmount, setInitialAmount] = useState<string>('0');
   const [closeNotes, setCloseNotes] = useState('');
+  const [actualCashAmount, setActualCashAmount] = useState<string>('');
   const [deliveryPersonOrders, setDeliveryPersonOrders] = useState<Order[]>([]);
+  const [loadingOrdersForClose, setLoadingOrdersForClose] = useState(false);
   const [cashRegisterMovements, setCashRegisterMovements] = useState<any>(null);
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
   const [orderFilter, setOrderFilter] = useState<'all' | 'preparing' | 'delivering' | 'completed' | 'cancelled'>('all');
@@ -191,10 +193,22 @@ export default function DeliveryPersonsManagementPage() {
   const handleCloseCashRegister = async () => {
     if (!selectedDeliveryPerson) return;
     
+    // Validar que se haya ingresado el monto en efectivo
+    if (!actualCashAmount || parseFloat(actualCashAmount) < 0) {
+      showToast('Debe ingresar el monto en efectivo que tiene el repartidor', 'error');
+      return;
+    }
+    
     try {
-      const result = await api.closeDeliveryPersonCashRegister(selectedDeliveryPerson.id, closeNotes || undefined);
+      const actualCash = parseFloat(actualCashAmount);
+      const result = await api.closeDeliveryPersonCashRegister(
+        selectedDeliveryPerson.id, 
+        closeNotes || undefined,
+        actualCash
+      );
       showToast('Caja cerrada exitosamente', 'success');
       setCloseNotes('');
+      setActualCashAmount('');
       setIsCloseCashRegisterModalOpen(false);
       
       // Mostrar movimientos
@@ -374,14 +388,17 @@ export default function DeliveryPersonsManagementPage() {
   const openDetailsModal = async (deliveryPerson: DeliveryPerson) => {
     setSelectedDeliveryPerson(deliveryPerson);
     setIsDetailsModalOpen(true);
-    // Siempre cargar todos los pedidos (activos e históricos) para poder cancelarlos si es necesario
+    // Cargar todos los pedidos (incluyendo completados) para poder verlos en el modal
     await loadDeliveryPersonOrders(deliveryPerson.id, true);
   };
 
   const loadDeliveryPersonOrders = async (deliveryPersonId: number, includeCompleted: boolean = false) => {
     try {
+      console.log('Cargando pedidos del repartidor:', deliveryPersonId, 'includeCompleted:', includeCompleted);
       const orders = await api.getDeliveryPersonOrdersByAdmin(deliveryPersonId, includeCompleted);
-      setDeliveryPersonOrders(orders);
+      console.log('Pedidos obtenidos:', orders);
+      console.log('Cantidad de pedidos:', orders?.length || 0);
+      setDeliveryPersonOrders(orders || []);
     } catch (error) {
       console.error('Error al cargar pedidos:', error);
       setDeliveryPersonOrders([]);
@@ -556,6 +573,46 @@ export default function DeliveryPersonsManagementPage() {
                     </div>
                   </div>
 
+                  {/* Active Orders Section */}
+                  {dp.activeOrders && dp.activeOrders.length > 0 && (
+                    <div className="border-t border-gray-200 pt-3 mt-3 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                          <ShoppingCart size={12} />
+                          Pedidos Asignados
+                        </h4>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                          dp.activeOrders.length > 0
+                            ? 'bg-primary-100 text-primary-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {dp.activeOrders.length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {dp.activeOrders.map((order) => (
+                          <div key={order.id} className="bg-gray-50 rounded-lg p-2 border border-gray-100 hover:border-primary-200 transition-colors">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="text-xs font-bold text-primary-600">#{order.id}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
+                                order.status === 'delivering'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}>
+                                {order.status === 'delivering' ? 'En Camino' : 'Preparando'}
+                              </span>
+                            </div>
+                            <p className="text-xs font-semibold text-gray-800 line-clamp-1">{order.customerName}</p>
+                            <div className="flex items-center gap-1 text-[10px] text-gray-500 mt-1">
+                              <MapPin size={10} />
+                              <span className="line-clamp-1">{order.customerAddress}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-2 mt-4">
                     {!isOpen ? (
                       <button
@@ -575,13 +632,33 @@ export default function DeliveryPersonsManagementPage() {
                           Crear Pedido
                         </button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedDeliveryPerson(dp);
+                            setLoadingOrdersForClose(true);
+                            try {
+                              // Recargar estado de caja para obtener el monto esperado calculado
+                              const status = await api.getDeliveryPersonCashRegisterStatus(dp.id);
+                              if (status && status.cashRegister) {
+                                setCashRegisterStatuses(prev => ({
+                                  ...prev,
+                                  [dp.id]: status
+                                }));
+                              }
+                              // Cargar pedidos completados antes de abrir el modal
+                              await loadDeliveryPersonOrders(dp.id, true);
+                            } finally {
+                              setLoadingOrdersForClose(false);
+                            }
                             setIsCloseCashRegisterModalOpen(true);
                           }}
                           className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-medium"
+                          disabled={loadingOrdersForClose}
                         >
-                          <X size={16} />
+                          {loadingOrdersForClose ? (
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <X size={16} />
+                          )}
                         </button>
                       </>
                     )}
@@ -1114,7 +1191,7 @@ export default function DeliveryPersonsManagementPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium">
-                  Pedidos Asignados (Todos)
+                  Pedidos Asignados
                 </h4>
                 {deliveryPersonOrders.length > 0 && (
                   <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -1147,7 +1224,16 @@ export default function DeliveryPersonsManagementPage() {
                   : deliveryPersonOrders.filter(o => o.status === orderFilter);
                 
                 if (filteredOrders.length === 0) {
-                  return <p className="text-gray-500 text-center py-4">No hay pedidos con este estado</p>;
+                  return (
+                    <div className="text-center py-4">
+                      <p className="text-gray-500">No hay pedidos con este estado</p>
+                      {orderFilter === 'delivering' && (
+                        <p className="text-sm text-gray-400 mt-2">
+                          Los pedidos en camino aparecerán aquí cuando se asignen al repartidor
+                        </p>
+                      )}
+                    </div>
+                  );
                 }
 
                 // Agrupar por estado
@@ -1222,8 +1308,42 @@ export default function DeliveryPersonsManagementPage() {
                                   </p>
                                 </div>
                               )}
-                              {/* Botón de cancelar para pedidos activos */}
-                              {(order.status === 'preparing' || order.status === 'delivering') && (
+                              {/* Botones de acción para pedidos activos */}
+                              {order.status === 'delivering' && (
+                                <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          await api.updateOrderStatus(order.id, 'completed');
+                                          showToast('Pedido finalizado exitosamente', 'success');
+                                          // Recargar pedidos del repartidor
+                                          if (selectedDeliveryPerson) {
+                                            await loadDeliveryPersonOrders(selectedDeliveryPerson.id, true);
+                                          }
+                                        } catch (error: any) {
+                                          showToast(error.message || 'Error al finalizar el pedido', 'error');
+                                        }
+                                      }}
+                                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium transition-colors"
+                                    >
+                                      <CheckCircle size={16} />
+                                      Entregado
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setOrderToCancel(order);
+                                        setIsCancelOrderModalOpen(true);
+                                      }}
+                                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-medium transition-colors"
+                                    >
+                                      <Ban size={16} />
+                                      Rechazar
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {order.status === 'preparing' && (
                                 <div className="mt-3 pt-3 border-t border-gray-200">
                                   <button
                                     onClick={() => {
@@ -1266,7 +1386,7 @@ export default function DeliveryPersonsManagementPage() {
         }
         confirmText="Cancelar Pedido"
         cancelText="No Cancelar"
-        confirmButtonClass="bg-red-500 hover:bg-red-600"
+        type="danger"
       />
 
       {/* Close Cash Register Modal */}
@@ -1275,42 +1395,178 @@ export default function DeliveryPersonsManagementPage() {
         onClose={() => {
           setIsCloseCashRegisterModalOpen(false);
           setCloseNotes('');
+          setActualCashAmount('');
         }}
         title="Cerrar Caja"
       >
         <div className="space-y-4">
-          <p className="text-gray-600">
-            ¿Estás seguro de que deseas cerrar la caja de {selectedDeliveryPerson?.name}?
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notas (opcional)
-            </label>
-            <textarea
-              value={closeNotes}
-              onChange={(e) => setCloseNotes(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              rows={3}
-              placeholder="Notas sobre el cierre de caja..."
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button
-              onClick={() => {
-                setIsCloseCashRegisterModalOpen(false);
-                setCloseNotes('');
-              }}
-              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleCloseCashRegister}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-            >
-              Cerrar Caja
-            </button>
-          </div>
+          {loadingOrdersForClose ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+              <span className="ml-3 text-gray-600">Cargando pedidos...</span>
+            </div>
+          ) : (() => {
+            const cashRegister = selectedDeliveryPerson 
+              ? cashRegisterStatuses[selectedDeliveryPerson.id]?.cashRegister 
+              : null;
+            const initialAmount = cashRegister?.initialAmount || 0;
+            const openedAt = cashRegister?.openedAt ? new Date(cashRegister.openedAt) : null;
+            
+            // Si el backend ya calculó el monto esperado, usarlo directamente (más confiable)
+            const backendExpectedAmount = cashRegister?.expectedAmount;
+            const backendTotalCash = cashRegister?.totalCash;
+            
+            // Filtrar pedidos completados de esta sesión de caja (desde que se abrió)
+            // El backend ya debería estar filtrando por fecha, pero por si acaso lo hacemos aquí también
+            const completedOrders = deliveryPersonOrders.filter(o => {
+              if (o.status !== 'completed') return false;
+              if (!openedAt) return true; // Si no hay fecha de apertura, incluir todos
+              const orderDate = new Date(o.createdAt);
+              return orderDate >= openedAt;
+            });
+            
+            // Calcular total en efectivo de pedidos completados de esta sesión (fallback si el backend no lo calculó)
+            // El método de pago puede venir como "cash", "efectivo", o el displayName
+            const cashOrders = completedOrders.filter(
+              o => {
+                const method = (o.paymentMethod || '').toLowerCase().trim();
+                // Verificar si es efectivo: puede ser "cash", "efectivo", o contener "efectivo"
+                return method === 'cash' || 
+                       method === 'efectivo' || 
+                       method.includes('efectivo') ||
+                       method === 'efectivo al entregar';
+              }
+            );
+            const frontendTotalCash = cashOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+            
+            // Usar el monto esperado del backend si está disponible (más confiable), sino calcularlo
+            const totalCash = backendTotalCash !== undefined && backendTotalCash !== null
+              ? Number(backendTotalCash)
+              : frontendTotalCash;
+            const expectedAmount = backendExpectedAmount !== undefined && backendExpectedAmount !== null
+              ? Number(backendExpectedAmount)
+              : Number(initialAmount) + totalCash;
+            
+            console.log('Cash Register:', cashRegister);
+            console.log('Initial Amount:', initialAmount);
+            console.log('Backend Total Cash:', backendTotalCash);
+            console.log('Backend Expected Amount:', backendExpectedAmount);
+            console.log('Frontend Total Cash:', frontendTotalCash);
+            console.log('Final Expected Amount:', expectedAmount);
+            
+            return (
+              <>
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <h4 className="font-semibold text-blue-900 mb-3">Resumen de Caja</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Monto inicial:</span>
+                      <span className="font-medium">${initialAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Pedidos completados:</span>
+                      <span className="font-medium">{completedOrders.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Pedidos en efectivo:</span>
+                      <span className="font-medium">${totalCash.toFixed(2)} ({cashOrders.length} pedidos)</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-blue-300">
+                      <span className="font-semibold text-blue-900">Monto esperado:</span>
+                      <span className="font-bold text-blue-900 text-lg">${expectedAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Lista de pedidos entregados */}
+                {completedOrders.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h4 className="font-semibold text-gray-900 mb-3">Pedidos Entregados ({completedOrders.length})</h4>
+                    <div className="max-h-60 overflow-y-auto space-y-2">
+                      {completedOrders.map(order => (
+                        <div key={order.id} className="bg-white rounded p-3 border border-gray-200">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1">
+                              <div className="font-medium text-sm">Pedido #{order.id}</div>
+                              <div className="text-xs text-gray-600">{order.customerName}</div>
+                              <div className="text-xs text-gray-500">{order.customerAddress}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold text-green-600">${order.total.toFixed(2)}</div>
+                              <div className="text-xs text-gray-500 capitalize">
+                                {order.paymentMethod?.toLowerCase() || 'N/A'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(order.createdAt).toLocaleString('es-ES')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Monto en efectivo que tiene el repartidor *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={actualCashAmount}
+                    onChange={(e) => setActualCashAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="0.00"
+                  />
+                  {actualCashAmount && parseFloat(actualCashAmount) !== expectedAmount && (
+                    <p className="mt-1 text-sm text-red-600">
+                      El monto ingresado (${parseFloat(actualCashAmount || '0').toFixed(2)}) no coincide con el esperado (${expectedAmount.toFixed(2)})
+                    </p>
+                  )}
+                  {actualCashAmount && parseFloat(actualCashAmount) === expectedAmount && (
+                    <p className="mt-1 text-sm text-green-600">
+                      ✓ El monto coincide correctamente
+                    </p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notas (opcional)
+                  </label>
+                  <textarea
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="Notas sobre el cierre de caja..."
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <button
+                    onClick={() => {
+                      setIsCloseCashRegisterModalOpen(false);
+                      setCloseNotes('');
+                      setActualCashAmount('');
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCloseCashRegister}
+                    disabled={!actualCashAmount || parseFloat(actualCashAmount) < 0}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cerrar Caja
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 

@@ -196,12 +196,16 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Order>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.OrderNumber).HasMaxLength(8);
             entity.Property(e => e.CustomerName).IsRequired().HasMaxLength(200);
             entity.Property(e => e.CustomerPhone).HasMaxLength(50);
             entity.Property(e => e.CustomerAddress).HasMaxLength(500);
             entity.Property(e => e.CustomerEmail).HasMaxLength(200);
             entity.Property(e => e.PaymentMethod).HasMaxLength(50);
             entity.Property(e => e.Status).HasMaxLength(50);
+            
+            // Índice único para OrderNumber (si no es null)
+            entity.HasIndex(e => e.OrderNumber).IsUnique().HasFilter("[OrderNumber] IS NOT NULL");
             entity.Property(e => e.Total).HasColumnType("decimal(18,2)");
             entity.Property(e => e.MercadoPagoPreferenceId).HasMaxLength(200);
             entity.Property(e => e.MercadoPagoPaymentId).HasMaxLength(200);
@@ -252,6 +256,7 @@ public class ApplicationDbContext : DbContext
                 item.Property(i => i.CategoryName).HasMaxLength(50); // Nombre de categoría
                 item.Property(i => i.UnitPrice).HasColumnType("decimal(18,2)").IsRequired();
                 item.Property(i => i.Quantity).IsRequired();
+                item.Property(i => i.IsRejected).HasDefaultValue(false); // Por defecto no rechazado
                 item.Property(i => i.SubProductsJson).HasMaxLength(2000); // JSON string para subproductos
                 
                 // Ignorar propiedades calculadas que no deben ser mapeadas a la base de datos
@@ -456,6 +461,39 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.IsOpen);
             entity.HasIndex(e => e.OpenedAt);
             entity.HasIndex(e => new { e.RestaurantId, e.DeliveryPersonId, e.IsOpen }); // Índice compuesto para consultas de caja abierta por restaurante y repartidor
+        });
+
+        // Configurar BusinessInfo (multi-tenant)
+        modelBuilder.Entity<BusinessInfo>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.StoreName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.Address).HasMaxLength(200);
+            entity.Property(e => e.Phone).HasMaxLength(20);
+            entity.Property(e => e.WhatsApp).HasMaxLength(20);
+            entity.Property(e => e.Email).HasMaxLength(100);
+            entity.Property(e => e.Instagram).HasMaxLength(200);
+            entity.Property(e => e.Facebook).HasMaxLength(200);
+            entity.Property(e => e.BusinessHours).HasMaxLength(500);
+            entity.Property(e => e.OpeningTime).HasMaxLength(5);
+            entity.Property(e => e.ClosingTime).HasMaxLength(5);
+            entity.Property(e => e.MinimumOrderAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.DollarExchangeRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.WelcomeMessage).HasMaxLength(500);
+            entity.Property(e => e.ClosedMessage).HasMaxLength(500);
+            entity.Property(e => e.OrderCompletionWebhookUrl).HasMaxLength(500);
+            entity.Property(e => e.CityName).HasMaxLength(100);
+            
+            // Relación con Restaurant (multi-tenant)
+            entity.HasOne(e => e.Restaurant)
+                  .WithMany(r => r.BusinessInfo)
+                  .HasForeignKey(e => e.RestaurantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // Índice único: un restaurante solo puede tener una configuración de BusinessInfo
+            entity.HasIndex(e => e.RestaurantId).IsUnique();
+            entity.HasIndex(e => e.RestaurantId);
         });
     }
 }

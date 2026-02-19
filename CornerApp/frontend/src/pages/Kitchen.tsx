@@ -13,7 +13,9 @@ import {
   List,
   CheckCircle2,
   Banknote,
-  AlertCircle
+  AlertCircle,
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
@@ -33,8 +35,8 @@ const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor:
   cancelled: { label: 'Cancelado', color: 'text-red-600', bgColor: 'bg-red-100', icon: XCircle },
 };
 
-// Estados de cocina (solo preparando)
-const KITCHEN_STATUSES: OrderStatus[] = ['preparing'];
+// Estados de cocina (preparando y pendientes que necesitan preparación)
+const KITCHEN_STATUSES: OrderStatus[] = ['preparing', 'pending'];
 
 // Función helper para verificar si un item es una bebida
 const isBebida = (item: { categoryName?: string | null }): boolean => {
@@ -192,7 +194,7 @@ export default function KitchenPage() {
       const ordersArray = Array.isArray(ordersResponse)
         ? ordersResponse
         : (ordersResponse as any)?.data || [];
-      // Filtrar solo los pedidos de cocina (solo preparing) que tienen items para preparar (no solo bebidas)
+      // Filtrar solo los pedidos de cocina (preparing y pending) que tienen items para preparar (no solo bebidas)
       const kitchenOrders = ordersArray.filter((o: Order) => 
         KITCHEN_STATUSES.includes(o.status) && hasItemsToPrepare(o)
       );
@@ -210,9 +212,53 @@ export default function KitchenPage() {
         });
       });
       
+      // Guardar mesas en el estado
+      const tablesArray = Array.isArray(tablesData) ? tablesData : [];
+      setTables(tablesArray);
+      
+      // Función helper para obtener el número de mesa (usar tablesArray directamente)
+      const getTableNumberForSort = (order: Order): number | null => {
+        if (!order.tableId) return null;
+        // Primero intentar usar order.table?.number si está disponible
+        if (order.table?.number) {
+          const num = parseInt(order.table.number, 10);
+          return isNaN(num) ? null : num;
+        }
+        // Si no, buscar en tablesArray
+        const table = tablesArray.find((t: Table) => t.id === order.tableId);
+        if (table?.number) {
+          const num = parseInt(table.number, 10);
+          return isNaN(num) ? null : num;
+        }
+        return null;
+      };
+      
+      // Ordenar: primero pedidos con mesa (por número de mesa), luego pedidos sin mesa (delivery)
+      kitchenOrders.sort((a: Order, b: Order) => {
+        const tableNumA = getTableNumberForSort(a);
+        const tableNumB = getTableNumberForSort(b);
+        
+        // Si ambos tienen mesa, ordenar por número de mesa
+        if (tableNumA !== null && tableNumB !== null) {
+          return tableNumA - tableNumB;
+        }
+        
+        // Si solo A tiene mesa, A va primero
+        if (tableNumA !== null && tableNumB === null) {
+          return -1;
+        }
+        
+        // Si solo B tiene mesa, B va primero
+        if (tableNumA === null && tableNumB !== null) {
+          return 1;
+        }
+        
+        // Si ninguno tiene mesa (ambos son delivery), mantener orden original (por fecha)
+        return 0;
+      });
+      
       setOrders(kitchenOrders);
       setDeliveryPersons(Array.isArray(deliveryData) ? deliveryData : []);
-      setTables(Array.isArray(tablesData) ? tablesData : []);
     } catch (error) {
       showToast('Error al cargar pedidos de cocina', 'error');
       console.error(error);
@@ -234,6 +280,20 @@ export default function KitchenPage() {
     }
   };
 
+  const handleRejectItem = async (order: Order, itemId: number, isRejected: boolean) => {
+    try {
+      await api.rejectOrderItem(order.id, itemId, isRejected);
+      showToast(
+        isRejected ? 'Producto rechazado' : 'Producto aceptado',
+        isRejected ? 'warning' : 'success'
+      );
+      loadData();
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al actualizar el producto';
+      showToast(errorMessage, 'error');
+    }
+  };
+
   const openAssignModal = (order: Order) => {
     setSelectedOrder(order);
     setSelectedDeliveryPersonId(order.deliveryPersonId || null);
@@ -245,9 +305,11 @@ export default function KitchenPage() {
       showToast('Selecciona un repartidor', 'error');
       return;
     }
-    // Para pedidos de delivery desde cocina, marcar directamente como completado
-    // Esto carga el pedido automáticamente en la caja del repartidor
-    await handleStatusChange(selectedOrder, 'completed', selectedDeliveryPersonId);
+    
+    // Si el pedido está en "pending", cambiar a "preparing" al asignar el repartidor
+    // Si está en "preparing", marcar como "completed" (listo para enviar)
+    const newStatus = selectedOrder.status === 'pending' ? 'preparing' : 'completed';
+    await handleStatusChange(selectedOrder, newStatus, selectedDeliveryPersonId);
     setIsAssignModalOpen(false);
     setSelectedOrder(null);
     setSelectedDeliveryPersonId(null);
@@ -256,17 +318,45 @@ export default function KitchenPage() {
   // Asegurar que orders siempre sea un array y filtrar pedidos que solo tienen bebidas
   const safeOrders = (Array.isArray(orders) ? orders : []).filter(o => hasItemsToPrepare(o));
 
-  // Agrupar pedidos por estado
+  // Función helper para obtener el número de mesa para ordenamiento
+  const getTableNumberForSort = (order: Order): number | null => {
+    if (!order.tableId) return null;
+    const table = tables.find(t => t.id === order.tableId);
+    if (table?.number) {
+      const num = parseInt(table.number, 10);
+      return isNaN(num) ? null : num;
+    }
+    return order.table?.number ? parseInt(order.table.number, 10) || null : null;
+  };
+
+  // Ordenar safeOrders por número de mesa (mantener el orden ya establecido en loadData)
+  const sortedSafeOrders = [...safeOrders].sort((a: Order, b: Order) => {
+    const tableNumA = getTableNumberForSort(a);
+    const tableNumB = getTableNumberForSort(b);
+    
+    if (tableNumA !== null && tableNumB !== null) {
+      return tableNumA - tableNumB;
+    }
+    if (tableNumA !== null && tableNumB === null) {
+      return -1;
+    }
+    if (tableNumA === null && tableNumB !== null) {
+      return 1;
+    }
+    return 0;
+  });
+
+  // Agrupar pedidos por estado (manteniendo el orden por mesa dentro de cada grupo)
   const groupedOrders = KITCHEN_STATUSES.reduce((acc, status) => {
-    acc[status] = safeOrders.filter(o => o.status === status);
+    acc[status] = sortedSafeOrders.filter(o => o.status === status);
     return acc;
   }, {} as Record<OrderStatus, Order[]>);
 
-  // Paginación para vista de tabla
-  const totalPages = Math.ceil(safeOrders.length / itemsPerPage);
+  // Paginación para vista de tabla (usar sortedSafeOrders para mantener orden por mesa)
+  const totalPages = Math.ceil(sortedSafeOrders.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedOrders = safeOrders.slice(startIndex, endIndex);
+  const paginatedOrders = sortedSafeOrders.slice(startIndex, endIndex);
 
   // Resetear página cuando cambian los pedidos
   useEffect(() => {
@@ -389,6 +479,7 @@ export default function KitchenPage() {
                       onStatusChange={handleStatusChange}
                       onAssign={() => openAssignModal(order)}
                       onCancel={() => setConfirmAction({ type: 'cancel', order })}
+                      onRejectItem={handleRejectItem}
                       getTableNumber={getTableNumber}
                       currentTime={currentTime}
                     />
@@ -442,6 +533,19 @@ export default function KitchenPage() {
                               Delivery
                             </span>
                           )}
+                          {/* Mostrar repartidor asignado si existe */}
+                          {order.deliveryPersonId && order.deliveryPerson && (
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold flex items-center gap-1">
+                              <Truck size={12} />
+                              {order.deliveryPerson.name}
+                            </span>
+                          )}
+                          {order.deliveryPersonId && !order.deliveryPerson && (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-bold flex items-center gap-1">
+                              <Truck size={12} />
+                              Repartidor #{order.deliveryPersonId}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -461,16 +565,61 @@ export default function KitchenPage() {
                           {order.items
                             ?.filter(item => !isBebida(item))
                             .map((item, idx) => (
-                            <div key={idx} className="text-sm font-medium text-gray-800">
-                              <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-xs font-bold mr-1">
-                                {item.quantity}x
-                              </span>
-                              {item.productName}
+                            <div 
+                              key={idx} 
+                              className={`text-sm font-medium rounded p-1 ${
+                                item.isRejected 
+                                  ? 'bg-red-100 border border-red-300 text-red-800 opacity-75' 
+                                  : 'text-gray-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1 flex-1">
+                                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                                    item.isRejected 
+                                      ? 'bg-red-200 text-red-800' 
+                                      : 'bg-orange-100 text-orange-700'
+                                  }`}>
+                                    {item.quantity}x
+                                  </span>
+                                  <span className={item.isRejected ? 'line-through' : ''}>
+                                    {item.productName}
+                                  </span>
+                                  {item.isRejected && (
+                                    <span className="px-1.5 py-0.5 bg-red-500 text-white rounded text-xs font-bold">
+                                      RECHAZADO
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => handleRejectItem(order, item.id, !item.isRejected)}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                                    item.isRejected
+                                      ? 'bg-green-500 text-white hover:bg-green-600'
+                                      : 'bg-red-500 text-white hover:bg-red-600'
+                                  }`}
+                                  title={item.isRejected ? 'Aceptar producto' : 'Rechazar producto'}
+                                >
+                                  {item.isRejected ? (
+                                    <>
+                                      <RotateCcw size={12} />
+                                      Aceptar
+                                    </>
+                                  ) : (
+                                    <>
+                                      <X size={12} />
+                                      Rechazar
+                                    </>
+                                  )}
+                                </button>
+                              </div>
                               {item.subProducts && item.subProducts.length > 0 && (
-                                <div className="ml-4 mt-1 text-xs text-gray-600">
+                                <div className={`ml-4 mt-1 text-xs ${
+                                  item.isRejected ? 'text-red-600' : 'text-gray-600'
+                                }`}>
                                   {item.subProducts.map((sub, subIdx) => (
                                     <div key={subIdx} className="flex items-center gap-1">
-                                      <span className="text-orange-600">+</span>
+                                      <span className={item.isRejected ? 'text-red-500' : 'text-orange-600'}>+</span>
                                       <span>{sub.name}</span>
                                     </div>
                                   ))}
@@ -527,11 +676,20 @@ export default function KitchenPage() {
           setSelectedOrder(null);
           setSelectedDeliveryPersonId(null);
         }}
-        title="Asignar Repartidor"
+        title={selectedOrder?.deliveryPersonId ? "Cambiar Repartidor" : "Asignar Repartidor"}
       >
         <div className="space-y-4">
           <p className="text-gray-600">
-            Selecciona un repartidor para el pedido <strong>#{selectedOrder?.id}</strong>
+            {selectedOrder?.deliveryPersonId ? (
+              <>
+                El pedido <strong>#{selectedOrder?.id}</strong> ya tiene un repartidor asignado.
+                Selecciona otro repartidor para cambiarlo.
+              </>
+            ) : (
+              <>
+                Selecciona un repartidor para el pedido <strong>#{selectedOrder?.id}</strong>
+              </>
+            )}
           </p>
 
           <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -580,7 +738,7 @@ export default function KitchenPage() {
               className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <Truck size={18} />
-              Listo para Enviar
+              {selectedOrder?.status === 'pending' ? 'Asignar y Preparar' : 'Listo para Enviar'}
             </button>
           </div>
         </div>
@@ -611,6 +769,7 @@ function KitchenOrderCard({
   onStatusChange,
   onAssign,
   onCancel,
+  onRejectItem,
   getTableNumber,
   currentTime
 }: {
@@ -618,6 +777,7 @@ function KitchenOrderCard({
   onStatusChange: (order: Order, status: OrderStatus, deliveryPersonId?: number) => void;
   onAssign: () => void;
   onCancel: () => void;
+  onRejectItem: (order: Order, itemId: number, isRejected: boolean) => void;
   getTableNumber: (tableId: number | null | undefined) => string | null;
   currentTime: number;
 }) {
@@ -651,6 +811,19 @@ function KitchenOrderCard({
             ) : (
               <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-bold">
                 Delivery
+              </span>
+            )}
+            {/* Mostrar repartidor asignado si existe */}
+            {order.deliveryPersonId && order.deliveryPerson && (
+              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold flex items-center gap-1">
+                <Truck size={12} />
+                {order.deliveryPerson.name}
+              </span>
+            )}
+            {order.deliveryPersonId && !order.deliveryPerson && (
+              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-bold flex items-center gap-1">
+                <Truck size={12} />
+                Repartidor #{order.deliveryPersonId}
               </span>
             )}
           </div>
@@ -691,18 +864,61 @@ function KitchenOrderCard({
             {order.items
               ?.filter(item => !isBebida(item))
               .map((item, idx) => (
-              <div key={idx} className="text-base font-semibold text-orange-900">
-                <div className="flex items-center gap-2">
-                  <span className="bg-orange-200 text-orange-800 px-2 py-0.5 rounded text-sm font-bold">
-                    {item.quantity}x
-                  </span>
-                  <span>{item.productName}</span>
+              <div 
+                key={idx} 
+                className={`text-base font-semibold rounded-lg p-2 transition-all ${
+                  item.isRejected 
+                    ? 'bg-red-100 border-2 border-red-300 text-red-900 opacity-75' 
+                    : 'text-orange-900'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className={`px-2 py-0.5 rounded text-sm font-bold ${
+                      item.isRejected 
+                        ? 'bg-red-200 text-red-800' 
+                        : 'bg-orange-200 text-orange-800'
+                    }`}>
+                      {item.quantity}x
+                    </span>
+                    <span className={item.isRejected ? 'line-through' : ''}>
+                      {item.productName}
+                    </span>
+                    {item.isRejected && (
+                      <span className="px-2 py-0.5 bg-red-500 text-white rounded text-xs font-bold">
+                        RECHAZADO
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => onRejectItem(order, item.id, !item.isRejected)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                      item.isRejected
+                        ? 'bg-green-500 text-white hover:bg-green-600'
+                        : 'bg-red-500 text-white hover:bg-red-600'
+                    }`}
+                    title={item.isRejected ? 'Aceptar producto' : 'Rechazar producto'}
+                  >
+                    {item.isRejected ? (
+                      <>
+                        <RotateCcw size={14} />
+                        Aceptar
+                      </>
+                    ) : (
+                      <>
+                        <X size={14} />
+                        Rechazar
+                      </>
+                    )}
+                  </button>
                 </div>
                 {item.subProducts && item.subProducts.length > 0 && (
-                  <div className="ml-8 mt-1 text-sm text-orange-700 font-normal">
+                  <div className={`ml-8 mt-1 text-sm font-normal ${
+                    item.isRejected ? 'text-red-700' : 'text-orange-700'
+                  }`}>
                     {item.subProducts.map((sub, subIdx) => (
                       <div key={subIdx} className="flex items-center gap-1">
-                        <span className="text-orange-600 font-bold">+</span>
+                        <span className={`font-bold ${item.isRejected ? 'text-red-600' : 'text-orange-600'}`}>+</span>
                         <span>{sub.name}</span>
                       </div>
                     ))}
@@ -727,21 +943,53 @@ function KitchenOrderCard({
         <div className="flex gap-2">
           {order.status === 'pending' && (
             <>
-              <button
-                onClick={() => onStatusChange(order, 'preparing')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-base font-bold"
-                title="Comenzar a preparar"
-              >
-                <Play size={20} />
-                Preparar
-              </button>
-              <button
-                onClick={onCancel}
-                className="px-4 py-3 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"
-                title="Cancelar pedido"
-              >
-                <XCircle size={20} />
-              </button>
+              {order.tableId != null ? (
+                // Pedido de salón: solo botón para comenzar a preparar
+                <>
+                  <button
+                    onClick={() => onStatusChange(order, 'preparing')}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-base font-bold"
+                    title="Comenzar a preparar"
+                  >
+                    <Play size={20} />
+                    Preparar
+                  </button>
+                  <button
+                    onClick={onCancel}
+                    className="px-4 py-3 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"
+                    title="Cancelar pedido"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                </>
+              ) : (
+                // Pedido de delivery: permitir asignar repartidor o comenzar a preparar
+                <>
+                  <button
+                    onClick={onAssign}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-base font-bold"
+                    title="Asignar repartidor"
+                  >
+                    <UserPlus size={20} />
+                    Asignar Repartidor
+                  </button>
+                  <button
+                    onClick={() => onStatusChange(order, 'preparing')}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-base font-bold"
+                    title="Comenzar a preparar"
+                  >
+                    <Play size={20} />
+                    Preparar
+                  </button>
+                  <button
+                    onClick={onCancel}
+                    className="px-4 py-3 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"
+                    title="Cancelar pedido"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                </>
+              )}
             </>
           )}
           {order.status === 'preparing' && (
@@ -757,15 +1005,30 @@ function KitchenOrderCard({
                   Entregado a Mesa
                 </button>
               ) : (
-                // Pedido de delivery: abrir modal para asignar repartidor
-                <button
-                  onClick={onAssign}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-base font-bold"
-                  title="Listo - Asignar repartidor"
-                >
-                  <CheckCircle size={20} />
-                  ¡Listo!
-                </button>
+                // Pedido de delivery: mostrar si tiene repartidor o permitir asignar
+                <>
+                  {order.deliveryPersonId ? (
+                    // Ya tiene repartidor asignado
+                    <button
+                      onClick={() => onStatusChange(order, 'delivering', order.deliveryPersonId)}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-base font-bold"
+                      title="Marcar como en camino"
+                    >
+                      <Truck size={20} />
+                      En Camino
+                    </button>
+                  ) : (
+                    // No tiene repartidor, permitir asignar
+                    <button
+                      onClick={onAssign}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-base font-bold"
+                      title="Listo - Asignar repartidor"
+                    >
+                      <CheckCircle size={20} />
+                      ¡Listo! (Asignar Repartidor)
+                    </button>
+                  )}
+                </>
               )}
               <button
                 onClick={onCancel}
@@ -798,12 +1061,30 @@ function KitchenTableActions({
     <>
       {order.status === 'pending' && (
         <>
-          <button onClick={() => onStatusChange(order, 'preparing')} className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" title="Comenzar a preparar">
-            <Play size={16} />
-          </button>
-          <button onClick={onCancel} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Cancelar pedido">
-            <XCircle size={16} />
-          </button>
+          {order.tableId != null ? (
+            // Pedido de salón: solo botón para comenzar a preparar
+            <>
+              <button onClick={() => onStatusChange(order, 'preparing')} className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" title="Comenzar a preparar">
+                <Play size={16} />
+              </button>
+              <button onClick={onCancel} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Cancelar pedido">
+                <XCircle size={16} />
+              </button>
+            </>
+          ) : (
+            // Pedido de delivery: permitir asignar repartidor o comenzar a preparar
+            <>
+              <button onClick={onAssign} className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200" title="Asignar repartidor">
+                <UserPlus size={16} />
+              </button>
+              <button onClick={() => onStatusChange(order, 'preparing')} className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200" title="Comenzar a preparar">
+                <Play size={16} />
+              </button>
+              <button onClick={onCancel} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Cancelar pedido">
+                <XCircle size={16} />
+              </button>
+            </>
+          )}
         </>
       )}
       {order.status === 'preparing' && (

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight } from 'lucide-react';
+import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight, Upload, Store, Plus, Minus, DollarSign } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,9 +21,30 @@ const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColo
 export default function TablesViewPage() {
   const { user } = useAuth();
   
+  // También verificar directamente en localStorage por si useAuth no se ha actualizado aún
+  const waiterUser = localStorage.getItem('waiter_user');
+  const waiterToken = localStorage.getItem('waiter_token');
+  const adminUser = localStorage.getItem('admin_user');
+  const adminToken = localStorage.getItem('admin_token');
+  
+  // Si hay token de mozo pero no hay usuario en useAuth, intentar parsear directamente
+  let currentUser = user;
+  if (!currentUser && waiterToken && waiterUser) {
+    try {
+      currentUser = JSON.parse(waiterUser);
+    } catch (e) {
+      console.error('Error al parsear usuario de mozo:', e);
+    }
+  }
+  
   // Verificar que el usuario tenga rol Admin o Employee
-  if (!user || (user.role !== 'Admin' && user.role !== 'Employee')) {
-    return <Navigate to="/admin" replace />;
+  if (!currentUser || (currentUser.role !== 'Admin' && currentUser.role !== 'Employee')) {
+    // Si hay token de mozo pero el usuario no es válido, redirigir al login de mozo
+    if (waiterToken || waiterUser) {
+      return <Navigate to="/mozo/login" replace />;
+    }
+    // Si no hay ningún token, redirigir al login de admin
+    return <Navigate to="/login" replace />;
   }
   
   const [tables, setTables] = useState<Table[]>([]);
@@ -70,7 +91,12 @@ export default function TablesViewPage() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('cash');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [totalAmountInPesos, setTotalAmountInPesos] = useState(0); // Total original en pesos
+  const [selectedCurrency, setSelectedCurrency] = useState<'UYU' | 'USD'>('UYU'); // Moneda seleccionada
+  const [dollarExchangeRate, setDollarExchangeRate] = useState<number | null>(null); // Tipo de cambio del dólar
   const [paymentProcessed, setPaymentProcessed] = useState(false);
+  const [receiptImage, setReceiptImage] = useState<string | null>(null);
+  const [receiptImagePreview, setReceiptImagePreview] = useState<string | null>(null);
   
   // POS waiting modal state
   const [isPOSWaitingModalOpen, setIsPOSWaitingModalOpen] = useState(false);
@@ -82,6 +108,18 @@ export default function TablesViewPage() {
   // Estado para forzar actualización en tiempo real (cada segundo)
   const [currentTime, setCurrentTime] = useState(Date.now());
 
+  // Mostrador Express state
+  const [isExpressCounterModalOpen, setIsExpressCounterModalOpen] = useState(false);
+  const [expressCounterItems, setExpressCounterItems] = useState<Array<{ id: number; name: string; price: number; quantity: number; subProducts?: Array<{ id: number; name: string; price: number }> }>>([]);
+  const [expressCounterSelectedProductId, setExpressCounterSelectedProductId] = useState<number | null>(null);
+  const [expressCounterProductQuantity, setExpressCounterProductQuantity] = useState(1);
+  const [expressCounterProductSubProducts, setExpressCounterProductSubProducts] = useState<SubProduct[]>([]);
+  const [expressCounterSelectedSubProducts, setExpressCounterSelectedSubProducts] = useState<number[]>([]);
+  const [expressCounterSelectedCategoryId, setExpressCounterSelectedCategoryId] = useState<number | null>(null);
+  const [expressCounterPaymentMethod, setExpressCounterPaymentMethod] = useState<string>('cash');
+  const [expressCounterCustomerName, setExpressCounterCustomerName] = useState<string>('');
+  const [isCreatingExpressOrder, setIsCreatingExpressOrder] = useState(false);
+
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -89,7 +127,52 @@ export default function TablesViewPage() {
     loadSpaces();
     loadProducts();
     loadPaymentMethods();
+    loadDollarExchangeRate();
   }, []);
+
+  // Forzar re-renderizado cuando cambie el tipo de cambio y el modal esté abierto
+  useEffect(() => {
+    if (isPaymentModalOpen && dollarExchangeRate) {
+      console.log('Tipo de cambio actualizado mientras el modal está abierto:', dollarExchangeRate);
+    }
+  }, [dollarExchangeRate, isPaymentModalOpen]);
+
+  const loadDollarExchangeRate = async (): Promise<number | null> => {
+    try {
+      console.log('🟢 loadDollarExchangeRate: Iniciando carga...');
+      const businessInfo = await api.getBusinessInfo();
+      console.log('🟢 loadDollarExchangeRate: BusinessInfo cargado:', businessInfo);
+      console.log('🟢 loadDollarExchangeRate: BusinessInfo completo (JSON):', JSON.stringify(businessInfo, null, 2));
+      
+      // Intentar obtener el valor con diferentes nombres posibles (camelCase y PascalCase)
+      const rate = businessInfo.dollarExchangeRate ?? 
+                   (businessInfo as any).DollarExchangeRate ?? 
+                   (businessInfo as any).dollarExchangeRate;
+      
+      console.log('🟢 loadDollarExchangeRate: DollarExchangeRate (directo):', businessInfo.dollarExchangeRate);
+      console.log('🟢 loadDollarExchangeRate: DollarExchangeRate (PascalCase):', (businessInfo as any).DollarExchangeRate);
+      console.log('🟢 loadDollarExchangeRate: Tipo de cambio (raw):', rate, 'Tipo:', typeof rate);
+      
+      // Convertir a número si es string o verificar si es válido
+      let exchangeRate: number | null = null;
+      if (rate !== null && rate !== undefined && rate !== '') {
+        const numRate = typeof rate === 'string' ? parseFloat(rate) : Number(rate);
+        console.log('🟢 loadDollarExchangeRate: Número convertido:', numRate, 'isNaN:', isNaN(numRate));
+        if (!isNaN(numRate) && numRate > 0) {
+          exchangeRate = numRate;
+        }
+      }
+      
+      console.log('🟢 loadDollarExchangeRate: Tipo de cambio final que se establecerá:', exchangeRate);
+      setDollarExchangeRate(exchangeRate);
+      console.log('🟢 loadDollarExchangeRate: Estado actualizado a:', exchangeRate);
+      return exchangeRate;
+    } catch (error) {
+      console.error('🔴 loadDollarExchangeRate: Error al cargar tipo de cambio:', error);
+      setDollarExchangeRate(null);
+      return null;
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -807,6 +890,7 @@ export default function TablesViewPage() {
 
   const openPaymentModal = async (table: Table) => {
     try {
+      console.log('🔵 openPaymentModal: Iniciando para mesa', table.id);
       setTableForPayment(table);
       setPaymentProcessed(false); // Resetear estado de pago procesado
       const orders = await api.getOrdersByTable(table.id);
@@ -817,11 +901,29 @@ export default function TablesViewPage() {
         return;
       }
       
+      console.log('🔵 openPaymentModal: Cargando tipo de cambio...');
+      // Recargar el tipo de cambio al abrir el modal (por si se actualizó)
+      const exchangeRate = await loadDollarExchangeRate();
+      console.log('🔵 openPaymentModal: Tipo de cambio cargado:', exchangeRate);
+      console.log('🔵 openPaymentModal: Estado dollarExchangeRate después de cargar:', dollarExchangeRate);
+      
       const total = orders.reduce((sum, order) => sum + order.total, 0);
-      setTotalAmount(total);
+      setTotalAmountInPesos(total);
+      setTotalAmount(total); // Por defecto en pesos
+      setSelectedCurrency('UYU'); // Resetear a pesos por defecto
       setSelectedPaymentMethod('cash');
+      
+      // Forzar actualización del estado antes de abrir el modal
+      if (exchangeRate) {
+        setDollarExchangeRate(exchangeRate);
+        console.log('🔵 openPaymentModal: Tipo de cambio establecido directamente:', exchangeRate);
+      }
+      
+      // Abrir el modal inmediatamente - React actualizará el estado
       setIsPaymentModalOpen(true);
+      console.log('🔵 openPaymentModal: Modal abierto. Estado dollarExchangeRate:', dollarExchangeRate);
     } catch (error: any) {
+      console.error('🔴 openPaymentModal: Error:', error);
       showToast(error.message || 'Error al cargar pedidos de la mesa', 'error');
     }
   };
@@ -1117,6 +1219,12 @@ export default function TablesViewPage() {
     setTableForPayment(null);
     setTableOrders([]);
     setPaymentProcessed(false);
+    setSelectedCurrency('UYU');
+    setTotalAmount(0);
+    setTotalAmountInPesos(0);
+    setReceiptImage(null);
+    setReceiptImagePreview(null);
+    setSelectedPaymentMethod('cash');
     // Cerrar también el modal de consumo si estaba abierto
     setIsTableConsumptionModalOpen(false);
     setTableForConsumption(null);
@@ -1208,7 +1316,7 @@ export default function TablesViewPage() {
         const maxAttempts = 60; // Máximo 2 minutos (60 intentos * 2 segundos)
         let attempts = 0;
         let code12Attempts = 0; // Contador específico para código 12
-        const maxCode12Attempts = 5; // Máximo 5 intentos adicionales cuando recibe código 12
+        // const maxCode12Attempts = 5; // Máximo 5 intentos adicionales cuando recibe código 12
         
         const pollInterval = setInterval(async () => {
           attempts++;
@@ -1442,6 +1550,14 @@ export default function TablesViewPage() {
       return;
     }
 
+    // Validar comprobante para transferencias
+    const isTransfer = selectedPaymentMethod.toLowerCase().includes('transfer') || 
+                       selectedPaymentMethod.toLowerCase().includes('transferencia');
+    if (isTransfer && !receiptImage) {
+      showToast('Debe adjuntar el comprobante de transferencia para continuar', 'error');
+      return;
+    }
+
     try {
       setIsProcessingPayment(true);
       
@@ -1472,7 +1588,7 @@ export default function TablesViewPage() {
       
       // Procesar el pago de todos los pedidos
       for (const order of tableOrders) {
-        await api.processTablePayment(order.id, selectedPaymentMethod, posTransactionInfo);
+        await api.processTablePayment(order.id, selectedPaymentMethod, posTransactionInfo, receiptImage || undefined);
         // Archivar el pedido después de procesar el pago para que no siga apareciendo en la mesa
         try {
           await api.archiveOrder(order.id);
@@ -1484,7 +1600,8 @@ export default function TablesViewPage() {
       
       await api.updateTableStatus(tableForPayment.id, 'Available');
       
-      showToast(`Pago procesado exitosamente. Total: $${totalAmount.toFixed(2)}`, 'success');
+      const currencySymbol = selectedCurrency === 'USD' ? 'USD' : 'UYU';
+      showToast(`Pago procesado exitosamente. Total: ${currencySymbol} $${totalAmount.toFixed(2)}`, 'success');
       
       // Marcar que el pago fue procesado para mostrar los botones de acción
       setPaymentProcessed(true);
@@ -1527,29 +1644,31 @@ export default function TablesViewPage() {
           </h1>
           <p className="text-gray-600 mt-1">Ver mesas y tomar pedidos</p>
         </div>
-        <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-md">
-          <button
-            onClick={() => setViewMode('floor')}
-            className={`px-3 py-2 rounded-md transition-colors ${
-              viewMode === 'floor' 
-                ? 'bg-primary-500 text-white' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            title="Vista de Plano"
-          >
-            <Grid size={20} />
-          </button>
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`px-3 py-2 rounded-md transition-colors ${
-              viewMode === 'grid' 
-                ? 'bg-primary-500 text-white' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            title="Vista de Lista"
-          >
-            <List size={20} />
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-md">
+            <button
+              onClick={() => setViewMode('floor')}
+              className={`px-3 py-2 rounded-md transition-colors ${
+                viewMode === 'floor' 
+                  ? 'bg-primary-500 text-white' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              title="Vista de Plano"
+            >
+              <Grid size={20} />
+            </button>
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-3 py-2 rounded-md transition-colors ${
+                viewMode === 'grid' 
+                  ? 'bg-primary-500 text-white' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              title="Vista de Lista"
+            >
+              <List size={20} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2046,7 +2165,7 @@ export default function TablesViewPage() {
                 <label className="block text-sm font-medium text-gray-700">
                   Selecciona un Producto
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
                   {products
                     .filter(p => p.categoryId === selectedCategoryId && p.isAvailable)
                     .map((product) => (
@@ -2064,19 +2183,19 @@ export default function TablesViewPage() {
                             setProductSubProducts([]);
                           }
                         }}
-                        className={`p-3 border-2 rounded-lg text-left transition-all ${
+                        className={`p-2 border rounded-lg text-left transition-all ${
                           selectedProductId === product.id
                             ? 'border-primary-500 bg-primary-50'
                             : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
                         }`}
                       >
-                        <div className="font-medium text-gray-800">{product.name}</div>
+                        <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
                         {product.description && (
-                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
                             {product.description}
                           </div>
                         )}
-                        <div className="text-sm font-bold text-primary-600 mt-2">
+                        <div className="text-xs font-bold text-primary-600 mt-1">
                           ${product.price.toFixed(2)}
                         </div>
                       </button>
@@ -2759,8 +2878,13 @@ export default function TablesViewPage() {
               <div className="text-center">
                 <p className="text-lg font-semibold text-green-800 mb-1">¡Pago Procesado Exitosamente!</p>
                 <p className="text-2xl font-bold text-green-600">
-                  ${totalAmount.toFixed(2)}
+                  {selectedCurrency === 'USD' ? 'USD' : 'UYU'} ${totalAmount.toFixed(2)}
                 </p>
+                {selectedCurrency === 'USD' && dollarExchangeRate && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Equivale a UYU ${totalAmountInPesos.toFixed(2)} (TC: {dollarExchangeRate.toFixed(2)})
+                  </p>
+                )}
                 <p className="text-sm text-gray-600 mt-2">
                   Método: {paymentMethods.find(m => m.name === selectedPaymentMethod)?.displayName || selectedPaymentMethod}
                 </p>
@@ -2821,13 +2945,85 @@ export default function TablesViewPage() {
             )}
 
             <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-lg font-semibold text-gray-700">Total a Cobrar:</span>
                 <span className="text-2xl font-bold text-green-600">
-                  ${totalAmount.toFixed(2)}
+                  {selectedCurrency === 'USD' ? 'USD' : 'UYU'} ${totalAmount.toFixed(2)}
                 </span>
               </div>
+              {selectedCurrency === 'USD' && dollarExchangeRate && (
+                <p className="text-xs text-gray-500 text-right">
+                  Equivale a UYU ${totalAmountInPesos.toFixed(2)} (TC: {dollarExchangeRate.toFixed(2)})
+                </p>
+              )}
+              {selectedCurrency === 'UYU' && dollarExchangeRate && (
+                <p className="text-xs text-gray-500 text-right">
+                  Equivale a USD ${(totalAmountInPesos / dollarExchangeRate).toFixed(2)} (TC: {dollarExchangeRate.toFixed(2)})
+                </p>
+              )}
             </div>
+
+            {/* Selector de Moneda */}
+            {(() => {
+              console.log('🟡 Renderizando selector de moneda. dollarExchangeRate:', dollarExchangeRate, 'Tipo:', typeof dollarExchangeRate);
+              console.log('🟡 Condición evaluada:', dollarExchangeRate !== null && dollarExchangeRate !== undefined && dollarExchangeRate > 0);
+              
+              // Mostrar selector si hay un tipo de cambio válido (mayor que 0)
+              if (dollarExchangeRate !== null && dollarExchangeRate !== undefined && dollarExchangeRate > 0) {
+                return (
+                  <div className="space-y-2 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      💱 Moneda de Pago
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCurrency('UYU');
+                          setTotalAmount(totalAmountInPesos);
+                        }}
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all font-semibold text-sm ${
+                          selectedCurrency === 'UYU'
+                            ? 'bg-primary-500 text-white border-primary-500 shadow-md'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-primary-300'
+                        }`}
+                      >
+                        UYU
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCurrency('USD');
+                          setTotalAmount(totalAmountInPesos / dollarExchangeRate);
+                        }}
+                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all font-semibold text-sm ${
+                          selectedCurrency === 'USD'
+                            ? 'bg-primary-500 text-white border-primary-500 shadow-md'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-primary-300'
+                        }`}
+                      >
+                        USD
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2 text-center">
+                      Tipo de cambio: <strong>1 USD = {dollarExchangeRate.toFixed(2)} UYU</strong>
+                    </p>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-sm text-yellow-800">
+                      <strong>Nota:</strong> Para habilitar pagos en dólares, configura el tipo de cambio en{' '}
+                      <strong>Configuración → Información del Negocio</strong>.
+                    </p>
+                    <p className="text-xs text-yellow-600 mt-1">
+                      Debug: dollarExchangeRate = {String(dollarExchangeRate)} (tipo: {typeof dollarExchangeRate})
+                    </p>
+                  </div>
+                );
+              }
+            })()}
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
@@ -2835,7 +3031,15 @@ export default function TablesViewPage() {
               </label>
               <select
                 value={selectedPaymentMethod}
-                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                onChange={(e) => {
+                  setSelectedPaymentMethod(e.target.value);
+                  // Limpiar comprobante si cambia el método de pago
+                  if (!e.target.value.toLowerCase().includes('transfer') && 
+                      !e.target.value.toLowerCase().includes('transferencia')) {
+                    setReceiptImage(null);
+                    setReceiptImagePreview(null);
+                  }
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               >
                 {paymentMethods.map((method) => (
@@ -2845,6 +3049,69 @@ export default function TablesViewPage() {
                 ))}
               </select>
             </div>
+
+            {/* Sección de Comprobante para Transferencia */}
+            {(selectedPaymentMethod.toLowerCase().includes('transfer') || 
+              selectedPaymentMethod.toLowerCase().includes('transferencia')) && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Comprobante de Transferencia {receiptImage ? '(Adjuntado)' : '*'}
+                </label>
+                {receiptImagePreview ? (
+                  <div className="relative">
+                    <img
+                      src={receiptImagePreview}
+                      alt="Vista previa del comprobante"
+                      className="w-full max-h-48 object-contain border border-gray-300 rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptImage(null);
+                        setReceiptImagePreview(null);
+                      }}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                      title="Eliminar comprobante"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-500 transition-colors">
+                    <input
+                      type="file"
+                      id="receipt-upload"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const base64String = reader.result as string;
+                            setReceiptImage(base64String);
+                            setReceiptImagePreview(base64String);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="receipt-upload"
+                      className="cursor-pointer flex flex-col items-center gap-2"
+                    >
+                      <Upload size={24} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">
+                        Haz clic para adjuntar comprobante
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        (JPG, PNG, etc.)
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-4 border-t">
               <button
@@ -2873,6 +3140,335 @@ export default function TablesViewPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Mostrador Express Modal */}
+      <Modal
+        isOpen={isExpressCounterModalOpen}
+        onClose={() => {
+          setIsExpressCounterModalOpen(false);
+          setExpressCounterItems([]);
+          setExpressCounterSelectedProductId(null);
+          setExpressCounterSelectedCategoryId(null);
+          setExpressCounterProductQuantity(1);
+          setExpressCounterProductSubProducts([]);
+          setExpressCounterSelectedSubProducts([]);
+          setExpressCounterCustomerName('');
+          setExpressCounterPaymentMethod('cash');
+        }}
+        title="Mostrador Express"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Nombre del cliente (opcional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre del Cliente (opcional)
+            </label>
+            <input
+              type="text"
+              value={expressCounterCustomerName}
+              onChange={(e) => setExpressCounterCustomerName(e.target.value)}
+              placeholder="Ej: Cliente Mostrador"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+          </div>
+
+          {/* Selección de categoría */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Categoría
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-32 overflow-y-auto">
+              {categories.map((category) => (
+                <button
+                  key={category.id}
+                  onClick={() => {
+                    setExpressCounterSelectedCategoryId(category.id);
+                    setExpressCounterSelectedProductId(null);
+                    setExpressCounterProductQuantity(1);
+                    setExpressCounterSelectedSubProducts([]);
+                  }}
+                  className={`p-2 border-2 rounded-lg text-center transition-all ${
+                    expressCounterSelectedCategoryId === category.id
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">{category.icon || '📦'}</div>
+                  <div className="text-xs font-medium text-gray-800">{category.name}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Selección de productos */}
+          {expressCounterSelectedCategoryId && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Selecciona un Producto
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
+                {products
+                  .filter(p => p.categoryId === expressCounterSelectedCategoryId && p.isAvailable)
+                  .map((product) => (
+                    <button
+                      key={product.id}
+                      onClick={async () => {
+                        setExpressCounterSelectedProductId(product.id);
+                        setExpressCounterProductQuantity(1);
+                        setExpressCounterSelectedSubProducts([]);
+                        try {
+                          const subProducts = await api.getSubProductsByProduct(product.id);
+                          setExpressCounterProductSubProducts(subProducts.filter(sp => sp.isAvailable));
+                        } catch (error) {
+                          console.error('Error loading subproducts:', error);
+                          setExpressCounterProductSubProducts([]);
+                        }
+                      }}
+                      className={`p-2 border rounded-lg text-left transition-all ${
+                        expressCounterSelectedProductId === product.id
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-gray-800 leading-tight">{product.name}</div>
+                      {product.description && (
+                        <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                          {product.description}
+                        </div>
+                      )}
+                      <div className="text-xs font-bold text-primary-600 mt-1">
+                        ${product.price.toFixed(2)}
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Guarniciones */}
+          {expressCounterSelectedProductId && expressCounterProductSubProducts.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Guarniciones (opcional)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                {expressCounterProductSubProducts.map((subProduct) => (
+                  <label
+                    key={subProduct.id}
+                    className="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={expressCounterSelectedSubProducts.includes(subProduct.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setExpressCounterSelectedSubProducts([...expressCounterSelectedSubProducts, subProduct.id]);
+                        } else {
+                          setExpressCounterSelectedSubProducts(expressCounterSelectedSubProducts.filter(id => id !== subProduct.id));
+                        }
+                      }}
+                      className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-800">{subProduct.name}</div>
+                      <div className="text-xs text-primary-600">+${subProduct.price.toFixed(2)}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cantidad y agregar al carrito */}
+          {expressCounterSelectedProductId && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Cantidad
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setExpressCounterProductQuantity(Math.max(1, expressCounterProductQuantity - 1))}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  <Minus size={18} />
+                </button>
+                <span className="text-lg font-semibold w-12 text-center">{expressCounterProductQuantity}</span>
+                <button
+                  onClick={() => setExpressCounterProductQuantity(expressCounterProductQuantity + 1)}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  <Plus size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    const product = products.find(p => p.id === expressCounterSelectedProductId);
+                    if (product) {
+                      const selectedSubProductsData = expressCounterProductSubProducts
+                        .filter(sp => expressCounterSelectedSubProducts.includes(sp.id))
+                        .map(sp => ({ id: sp.id, name: sp.name, price: sp.price }));
+                      
+                      const itemPrice = product.price + selectedSubProductsData.reduce((sum, sp) => sum + sp.price, 0);
+                      
+                      setExpressCounterItems([...expressCounterItems, {
+                        id: product.id,
+                        name: product.name,
+                        price: itemPrice,
+                        quantity: expressCounterProductQuantity,
+                        subProducts: selectedSubProductsData.length > 0 ? selectedSubProductsData : undefined
+                      }]);
+                      
+                      setExpressCounterSelectedProductId(null);
+                      setExpressCounterProductQuantity(1);
+                      setExpressCounterSelectedSubProducts([]);
+                      showToast(`${product.name} agregado`, 'success');
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
+                >
+                  Agregar al Carrito
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Carrito */}
+          {expressCounterItems.length > 0 && (
+            <div className="space-y-2 pt-4 border-t">
+              <h3 className="text-lg font-semibold text-gray-800">Carrito</h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {expressCounterItems.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-800">{item.name} x{item.quantity}</div>
+                      {item.subProducts && item.subProducts.length > 0 && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          + {item.subProducts.map(sp => sp.name).join(', ')}
+                        </div>
+                      )}
+                      <div className="text-sm font-semibold text-primary-600 mt-1">
+                        ${(item.price * item.quantity).toFixed(2)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setExpressCounterItems(expressCounterItems.filter((_, i) => i !== index));
+                      }}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-2 border-t">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-lg font-semibold text-gray-800">Total:</span>
+                  <span className="text-2xl font-bold text-primary-600">
+                    ${expressCounterItems.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Método de pago */}
+          {expressCounterItems.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <label className="block text-sm font-medium text-gray-700">
+                Método de Pago
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {paymentMethods.map((method) => (
+                  <button
+                    key={method.id}
+                    onClick={() => setExpressCounterPaymentMethod(method.name)}
+                    className={`p-3 border-2 rounded-lg text-center transition-all ${
+                      expressCounterPaymentMethod === method.name
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">{method.name}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Botones de acción */}
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              onClick={() => {
+                setIsExpressCounterModalOpen(false);
+                setExpressCounterItems([]);
+                setExpressCounterSelectedProductId(null);
+                setExpressCounterSelectedCategoryId(null);
+                setExpressCounterProductQuantity(1);
+                setExpressCounterProductSubProducts([]);
+                setExpressCounterSelectedSubProducts([]);
+                setExpressCounterCustomerName('');
+                setExpressCounterPaymentMethod('cash');
+              }}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={async () => {
+                if (expressCounterItems.length === 0) {
+                  showToast('Agrega al menos un producto', 'error');
+                  return;
+                }
+
+                try {
+                  setIsCreatingExpressOrder(true);
+                  const total = expressCounterItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                  
+                  const response = await api.createExpressCounterOrder({
+                    customerName: expressCounterCustomerName || 'Mostrador Express',
+                    items: expressCounterItems,
+                    paymentMethod: expressCounterPaymentMethod,
+                    total: total
+                  });
+
+                  showToast(`Venta de Mostrador Express #${response.id} registrada exitosamente`, 'success');
+                  
+                  // Limpiar el formulario
+                  setExpressCounterItems([]);
+                  setExpressCounterSelectedProductId(null);
+                  setExpressCounterSelectedCategoryId(null);
+                  setExpressCounterProductQuantity(1);
+                  setExpressCounterProductSubProducts([]);
+                  setExpressCounterSelectedSubProducts([]);
+                  setExpressCounterCustomerName('');
+                  setExpressCounterPaymentMethod('cash');
+                  
+                  setIsExpressCounterModalOpen(false);
+                } catch (error: any) {
+                  showToast(error.message || 'Error al registrar la venta', 'error');
+                } finally {
+                  setIsCreatingExpressOrder(false);
+                }
+              }}
+              disabled={isCreatingExpressOrder || expressCounterItems.length === 0}
+              className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isCreatingExpressOrder ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <DollarSign size={18} />
+                  Registrar Venta
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* POS Waiting Modal - z-index alto para estar por encima de otros modales */}

@@ -14,7 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (restaurantId: number | null, username: string, password: string) => Promise<void>;
+  login: (restaurantIdentifier: string | null, username: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   loading: boolean;
@@ -30,25 +30,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Cargar token y usuario del localStorage al iniciar
     // Buscar primero admin_token, luego waiter_token
-    const savedToken = localStorage.getItem('admin_token') || localStorage.getItem('waiter_token');
-    const savedUser = localStorage.getItem('admin_user') || localStorage.getItem('waiter_user');
-    
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error('Error al parsear usuario guardado:', e);
-        localStorage.removeItem('admin_token');
-        localStorage.removeItem('admin_user');
-        localStorage.removeItem('waiter_token');
-        localStorage.removeItem('waiter_user');
+    const loadAuth = () => {
+      const savedToken = localStorage.getItem('admin_token') || localStorage.getItem('waiter_token');
+      const savedUser = localStorage.getItem('admin_user') || localStorage.getItem('waiter_user');
+      
+      if (savedToken && savedUser) {
+        setToken(savedToken);
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch (e) {
+          console.error('Error al parsear usuario guardado:', e);
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_user');
+          localStorage.removeItem('waiter_token');
+          localStorage.removeItem('waiter_user');
+          setToken(null);
+          setUser(null);
+        }
+      } else {
+        setToken(null);
+        setUser(null);
       }
-    }
+    };
+
+    loadAuth();
     setLoading(false);
+
+    // Escuchar cambios en localStorage (entre pestañas)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'admin_token' || e.key === 'waiter_token' || 
+          e.key === 'admin_user' || e.key === 'waiter_user') {
+        loadAuth();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Escuchar eventos personalizados para cambios en la misma pestaña
+    const handleAuthChange = () => {
+      loadAuth();
+    };
+
+    window.addEventListener('auth-changed', handleAuthChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth-changed', handleAuthChange);
+    };
   }, []);
 
-  const login = async (restaurantId: number | null, username: string, password: string) => {
+  const login = async (restaurantIdentifier: string | null, username: string, password: string) => {
     try {
       const response = await fetch('/api/auth/admin/login', {
         method: 'POST',
@@ -56,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          restaurantId: restaurantId || undefined, 
+          restaurantIdentifier: restaurantIdentifier || undefined, 
           username, 
           password 
         }),
@@ -69,12 +100,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json();
       
+      // Verificar que el usuario no sea Employee (Mozo)
+      if (data.user?.role === 'Employee') {
+        throw new Error('Los mozos deben iniciar sesión desde la sección de mozos');
+      }
+      
       setToken(data.token);
       setUser(data.user);
       
-      // Guardar en localStorage
+      // Guardar en localStorage y limpiar tokens de mozo si existen
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('admin_user', JSON.stringify(data.user));
+      localStorage.removeItem('waiter_token');
+      localStorage.removeItem('waiter_user');
+      
+      // Disparar evento para actualizar otros componentes
+      window.dispatchEvent(new Event('auth-changed'));
     } catch (error) {
       throw error;
     }
