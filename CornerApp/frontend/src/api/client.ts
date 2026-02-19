@@ -3,10 +3,24 @@
  * Maneja todas las peticiones HTTP al backend
  */
 
-// Detectar si estamos accediendo desde ngrok o localmente
-const isNgrok = window.location.hostname.includes('ngrok-free.dev') || window.location.hostname.includes('ngrok.io');
-// URL del backend: ngrok si accedemos desde ngrok, sino usar proxy local
-const API_BASE_URL = isNgrok ? 'https://michele-comfiest-soo.ngrok-free.dev' : '';
+// Configuración del backend URL desde variable de entorno
+const getApiBaseUrl = () => {
+  // 1. Si hay variable de entorno VITE_API_URL, usarla (Cloudflare Pages, producción)
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // 2. Si estamos en ngrok, usar URL de ngrok
+  const isNgrok = window.location.hostname.includes('ngrok-free.dev') || window.location.hostname.includes('ngrok.io');
+  if (isNgrok) {
+    return 'https://michele-comfiest-soo.ngrok-free.dev';
+  }
+  
+  // 3. Por defecto, usar proxy local (desarrollo)
+  return '';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
