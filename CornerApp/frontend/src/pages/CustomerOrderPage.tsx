@@ -61,7 +61,6 @@ export default function CustomerOrderPage() {
   const [comments, setComments] = useState('');
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [receiptImagePreview, setReceiptImagePreview] = useState<string | null>(null);
-  const [restaurantName, setRestaurantName] = useState<string>('');
   const [availableDeliveryPersons, setAvailableDeliveryPersons] = useState<Array<{ id: number; name: string; phone?: string }>>([]);
   const [selectedDeliveryPersonId, setSelectedDeliveryPersonId] = useState<number | null>(null);
   const [businessStatus, setBusinessStatus] = useState<{ isOpen: boolean; isWithinHours: boolean; message: string } | null>(null);
@@ -123,7 +122,8 @@ export default function CustomerOrderPage() {
       const response = await fetch(`/api/restaurants/${id}`);
       if (response.ok) {
         const restaurant = await response.json();
-        setRestaurantName(restaurant.name || '');
+        // Restaurant name loaded successfully
+        console.log('Restaurant loaded:', restaurant.name);
       }
     } catch (error) {
       console.error('Error loading restaurant name:', error);
@@ -1391,11 +1391,8 @@ export default function CustomerOrderPage() {
                     if (restaurantId) {
                       const restaurant = restaurantsMap.get(restaurantId);
                       if (restaurant) {
-                        setRestaurantName(restaurant.name);
                         loadRestaurantName(restaurantId);
                       }
-                    } else {
-                      setRestaurantName('');
                     }
                     // Limpiar carrito al cambiar de restaurante
                     setCart([]);

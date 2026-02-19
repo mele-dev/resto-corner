@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight, Upload, Store, Plus, Minus, DollarSign } from 'lucide-react';
+import { Search, Table as TableIcon, Users, MapPin, Grid, List, Clock, ShoppingCart, CreditCard, X, Printer, Edit, ArrowRight, Upload, Plus, Minus, DollarSign } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,11 +21,9 @@ const TABLE_STATUSES: { value: TableStatus; label: string; color: string; bgColo
 export default function TablesViewPage() {
   const { user } = useAuth();
   
-  // También verificar directamente en localStorage por si useAuth no se ha actualizado aún
+  // Verificar directamente en localStorage por si useAuth no se ha actualizado aún
   const waiterUser = localStorage.getItem('waiter_user');
   const waiterToken = localStorage.getItem('waiter_token');
-  const adminUser = localStorage.getItem('admin_user');
-  const adminToken = localStorage.getItem('admin_token');
   
   // Si hay token de mozo pero no hay usuario en useAuth, intentar parsear directamente
   let currentUser = user;
